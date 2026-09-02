@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>file:// receiver</title>
+<pre id="out">waiting for handle</pre>
+<script>
+window.addEventListener('message', async (event) => {
+  if (!event.data || event.data.__xfer !== 'handle') return;
+  const h = event.data.handle;
+  const report = { __xfer: 'report', origin: location.origin, hasHandle: !!h,
+    isDirHandle: !!(h && typeof h.getFileHandle === 'function'), name: h && h.name };
+  if (report.isDirHandle) {
+    try {
+      report.permission = await h.queryPermission({ mode: 'readwrite' });
+      const fh = await h.getFileHandle('xfer-from-file.txt', { create: true });
+      const w = await fh.createWritable();
+      await w.write('written from a file:// page using a transferred handle');
+      await w.close();
+      report.canWrite = true;
+    } catch (e) { report.canWrite = e.name + ': ' + e.message; }
+  }
+  document.getElementById('out').textContent = JSON.stringify(report, null, 2);
+  window.__XFER = report;
+  if (window.opener) window.opener.postMessage(report, '*');
+});
+</script>

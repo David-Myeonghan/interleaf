@@ -606,11 +606,13 @@
      * @param {(status: object) => void} [options.onStatus]
      * @param {() => string} [options.suggestName] filename for a fresh target
      */
-    constructor({ build: build2, onStatus, suggestName }) {
+    constructor({ build: build2, onStatus, suggestName, docId = null, ownName = null }) {
       this.build = build2;
       this.onStatus = onStatus ?? (() => {
       });
       this.suggestName = suggestName ?? (() => "page.html");
+      this.docId = docId;
+      this.ownName = ownName;
       this.fileHandle = null;
       this.dirHandle = null;
       this.state = SaveState.unset;
@@ -719,7 +721,9 @@
      * @param {string} [ownName] this document's filename, when opened from disk
      * @param {string} [docId] this document's identity
      */
-    async restoreFile(ownName, docId) {
+    async restoreFile(ownName = this.ownName, docId = this.docId) {
+      this.ownName = ownName ?? this.ownName;
+      this.docId = docId ?? this.docId;
       await this.restoreFolder();
       if (ownName && this.dirHandle) {
         const adopted = await this.adoptInFolder(ownName, { docId, create: false });
@@ -753,12 +757,8 @@
       if (rememberFolder) {
         this.dirHandle = await window.showDirectoryPicker({ mode: "readwrite", id: "interleaf" });
         await put(KEYS.dir, this.dirHandle);
-        const wanted = this.suggestName();
-        const existing = await this.getFileHandle(wanted);
-        this.fileHandle = await this.dirHandle.getFileHandle(
-          existing ? await this.freeName(wanted) : wanted,
-          { create: true }
-        );
+        const status = await this.adoptInFolder(this.ownName ?? this.suggestName(), { docId: this.docId });
+        if (status.state !== SaveState.ready) return status;
       } else {
         this.dirHandle = null;
         await remove(KEYS.dir);
@@ -1036,7 +1036,9 @@
     const saver = new Saver({
       build: () => build(layer, data),
       suggestName: () => suggestedName(data),
-      onStatus: (status) => renderStatus(status)
+      onStatus: (status) => renderStatus(status),
+      docId: data.docId,
+      ownName: ownFileName()
     });
     const style = document.createElement("style");
     style.id = "interleaf-bar-style";
@@ -1106,7 +1108,7 @@
     };
     el.change.onclick = () => pickTarget();
     el.forget.onclick = () => saver.forget();
-    saver.restoreFile(ownFileName(), data.docId);
+    saver.restoreFile();
     window.__interleaf = {
       layer,
       data,

@@ -89,6 +89,8 @@ function boot() {
     build: () => build(layer, data),
     suggestName: () => suggestedName(data),
     onStatus: (status) => renderStatus(status),
+    docId: data.docId,
+    ownName: ownFileName(),
   });
 
   const style = document.createElement('style');
@@ -179,7 +181,7 @@ function boot() {
   // file reopened from disk usually needs no picker - only the one permission
   // click that a restored handle costs per browser session.
   // Nothing is written on open: the file on disk already matches what is shown.
-  saver.restoreFile(ownFileName(), data.docId);
+  saver.restoreFile();
 
   window.__interleaf = {
     layer,

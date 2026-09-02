@@ -182,6 +182,7 @@ async function boot() {
     build: () => buildDocument(layer),
     suggestName: () => `${snapshot.name}.html`,
     onStatus: renderStatus,
+    docId: snapshot.docId,
   });
 
   mountToolbar(layer, saver);

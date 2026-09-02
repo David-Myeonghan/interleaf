@@ -26,10 +26,15 @@ export class Saver {
    * @param {(status: object) => void} [options.onStatus]
    * @param {() => string} [options.suggestName] filename for a fresh target
    */
-  constructor({ build, onStatus, suggestName }) {
+  constructor({ build, onStatus, suggestName, docId = null, ownName = null }) {
     this.build = build;
     this.onStatus = onStatus ?? (() => {});
     this.suggestName = suggestName ?? (() => 'page.html');
+    // Identity of the document being edited. Without it, picking a folder from a
+    // reopened file created "name (2).html" beside the very file on screen,
+    // because a name collision was treated as a stranger.
+    this.docId = docId;
+    this.ownName = ownName;
     this.fileHandle = null;
     this.dirHandle = null;
     this.state = SaveState.unset;
@@ -150,7 +155,9 @@ export class Saver {
    * @param {string} [ownName] this document's filename, when opened from disk
    * @param {string} [docId] this document's identity
    */
-  async restoreFile(ownName, docId) {
+  async restoreFile(ownName = this.ownName, docId = this.docId) {
+    this.ownName = ownName ?? this.ownName;
+    this.docId = docId ?? this.docId;
     await this.restoreFolder();
 
     if (ownName && this.dirHandle) {
@@ -189,12 +196,10 @@ export class Saver {
       // A folder handle is what makes every later save silent.
       this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'interleaf' });
       await store.put(store.KEYS.dir, this.dirHandle);
-      const wanted = this.suggestName();
-      const existing = await this.getFileHandle(wanted);
-      this.fileHandle = await this.dirHandle.getFileHandle(
-        existing ? await this.freeName(wanted) : wanted,
-        { create: true },
-      );
+      // adoptInFolder compares the stamped id, so this document's own file is
+      // taken in place and only a genuine stranger is stepped around.
+      const status = await this.adoptInFolder(this.ownName ?? this.suggestName(), { docId: this.docId });
+      if (status.state !== SaveState.ready) return status;
     } else {
       this.dirHandle = null;
       await store.remove(store.KEYS.dir);

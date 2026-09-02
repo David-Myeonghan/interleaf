@@ -223,6 +223,50 @@ check(collision.strictState === 'unset',
 check(collision.strictTargetName === null,
   `a stranger was adopted as our own file: ${collision.strictTargetName}`);
 
+// Picking a folder from a reopened file must adopt that same file, not create
+// "name (2).html" beside the document on screen.
+const reopened = JSON.parse(await ed.eval(`(async () => {
+  const { saver } = window.__interleaf;
+  const files = new Map();
+  const body = JSON.stringify({ version: 1, docId: 'DOC-SELF', notes: [] });
+  const make = (name, text) => ({
+    name,
+    getFile: async () => ({ size: text.length, slice: (from) => ({ text: async () => text.slice(from) }), text: async () => text }),
+    createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+    queryPermission: async () => 'granted',
+  });
+  files.set('self.html', make('self.html', body));
+
+  const dir = {
+    name: 'stub-folder',
+    queryPermission: async () => 'granted',
+    getFileHandle: async (name, options) => {
+      if (!files.has(name)) {
+        if (!options?.create) { const e = new Error('nope'); e.name = 'NotFoundError'; throw e; }
+        files.set(name, make(name, ''));
+      }
+      return files.get(name);
+    },
+  };
+
+  // Stand in for showDirectoryPicker, which is a native window.
+  const realPicker = window.showDirectoryPicker;
+  window.showDirectoryPicker = async () => dir;
+  saver.fileHandle = null; saver.dirHandle = null; saver.pending = null;
+  saver.docId = 'DOC-SELF';
+  saver.ownName = 'self.html';
+  try {
+    await saver.chooseTarget({ rememberFolder: true });
+  } finally {
+    window.showDirectoryPicker = realPicker;
+  }
+  return JSON.stringify({ target: saver.fileHandle?.name ?? null, state: saver.state });
+})()`));
+console.log('\nreopened file picks its own file:', reopened);
+check(reopened.target === 'self.html',
+  `picking a folder from a reopened file should adopt self.html, got ${reopened.target}`);
+check(reopened.state === 'ready', `expected ready after adopting, got ${reopened.state}`);
+
 console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: save states, panel, coalescing, no write on open, no clobbering neighbours');
 popup.close(); ed.close(); opened.close();
 process.exit(failures.length ? 1 : 0);
