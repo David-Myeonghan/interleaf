@@ -50,18 +50,54 @@ async function capture(tabId) {
     target: { tabId },
     args: [CAPTURE_OPTIONS, CAPTURE_TIMEOUT_MS],
     func: async (options, timeoutMs) => {
-      const data = await Promise.race([
-        // The page's own address must be passed in: without it the engine sets a
-        // base URI ending in "undefined" and every relative link in the capture
-        // resolves against the wrong place.
-        globalThis.__interleafCapture.getPageData({ ...options, url: location.href }, {}),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('capture timed out after ' + timeoutMs + 'ms')), timeoutMs)),
-      ]);
-      return { content: data.content, title: data.title };
+      // Embedding a page's resources requires setting a base URI. A page that
+      // declares base-uri 'none' forbids exactly that, so the capture cannot be
+      // made at all - not a fault to report as a crash, but a limit to name.
+      const canSetBase = await new Promise((resolve) => {
+        const probe = document.createElement('base');
+        probe.href = location.href;
+        let allowed = true;
+        const onViolation = (event) => {
+          if (event.effectiveDirective === 'base-uri' || event.violatedDirective === 'base-uri') allowed = false;
+        };
+        document.addEventListener('securitypolicyviolation', onViolation);
+        document.head.appendChild(probe);
+        setTimeout(() => {
+          document.removeEventListener('securitypolicyviolation', onViolation);
+          probe.remove();
+          resolve(allowed);
+        }, 0);
+      });
+      if (!canSetBase) {
+        return { reason: 'base-uri-blocked', error: 'this page forbids setting a base URI' };
+      }
+
+      const started = Date.now();
+      try {
+        const data = await Promise.race([
+          // The page's own address must be passed in: without it the engine sets
+          // a base URI ending in "undefined" and every relative link in the
+          // capture resolves against the wrong place.
+          globalThis.__interleafCapture.getPageData({ ...options, url: location.href }, {}),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('capture timed out after ' + timeoutMs + 'ms')), timeoutMs)),
+        ]);
+        return {
+          content: data.content,
+          title: data.title,
+          pageMs: Date.now() - started,
+        };
+      } catch (e) {
+        return { reason: 'failed', error: String(e && e.message ? e.message : e) };
+      }
     },
   });
 
+  if (result?.reason) {
+    const error = new Error(result.error ?? 'capture failed');
+    error.reason = result.reason;
+    throw error;
+  }
   if (!result?.content) throw new Error('capture returned no content');
   return { html: result.content, title: result.title || tab.title, url: tab.url };
 }
@@ -105,7 +141,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === 'capture') {
     captureAndOpenEditor(msg.tabId)
       .then(reply)
-      .catch((e) => reply({ ok: false, error: String(e?.message ?? e) }));
+      // The reason travels with the failure so the popup can say what happened
+      // in words rather than leaving a console error as the only explanation.
+      .catch((e) => reply({ ok: false, reason: e?.reason ?? 'failed', error: String(e?.message ?? e) }));
     return true;
   }
   return false;

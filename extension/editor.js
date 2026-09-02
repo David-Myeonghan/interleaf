@@ -101,7 +101,7 @@ function mountToolbar(layer, saver) {
     if (!saver.fileHandle) {
       const picked = await pickTarget();
       // Nowhere to write, but the notes still exist and must be rescuable.
-      if (!picked) await downloadCopy(layer);
+      if (!picked) await downloadCopy(layer, saver);
       return;
     }
     await saver.saveNow();
@@ -122,8 +122,8 @@ function renderStatus(status) {
     : status.state === 'needs-permission' ? 'warn' : 'note';
   // Where saves go must be visible; a tool that quietly writes somewhere is
   // worse than one that asks.
-  targetEl.textContent = status.fileName ? `→ ${describeTarget(status)}` : '';
-  document.getElementById('interleaf-change').hidden = !status.fileName;
+  targetEl.textContent = status.path ? `→ ${status.path}` : '';
+  document.getElementById('interleaf-change').hidden = !status.remembersFolder && !status.fileName;
   document.getElementById('interleaf-forget').hidden = !status.fileName;
   save.textContent = status.state === 'needs-permission' ? '저장 허용' : '이 파일에 저장';
 }
@@ -142,19 +142,20 @@ async function runtimeSources() {
   return { js, css };
 }
 
-async function buildDocument(layer) {
+async function buildDocument(layer, saver) {
   const { js, css } = await runtimeSources();
   return serializeDocument({
     notes: layer.toJSON(),
     runtimeJs: js,
     runtimeCss: css,
     docId: snapshot.docId,
+    savedIn: saver?.dirHandle?.name ?? saver?.hintedDir ?? null,
     source: { url: snapshot.url, title: snapshot.title, capturedAt: snapshot.capturedAt },
   });
 }
 
-async function downloadCopy(layer) {
-  const html = await buildDocument(layer);
+async function downloadCopy(layer, saver) {
+  const html = await buildDocument(layer, saver);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   try {
@@ -179,7 +180,7 @@ async function boot() {
   layer.mount();
 
   const saver = new Saver({
-    build: () => buildDocument(layer),
+    build: () => buildDocument(layer, saver),
     suggestName: () => `${snapshot.name}.html`,
     onStatus: renderStatus,
     docId: snapshot.docId,
@@ -201,7 +202,7 @@ async function boot() {
   };
 
   // Exposed for the verification harness, which drives selections over CDP.
-  window.__interleaf = { layer, saver, snapshot, buildDocument: () => buildDocument(layer) };
+  window.__interleaf = { layer, saver, snapshot, buildDocument: () => buildDocument(layer, saver) };
 }
 
 boot().catch((e) => fail(String(e?.message ?? e)));

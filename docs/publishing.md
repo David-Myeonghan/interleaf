@@ -1,0 +1,69 @@
+# Publishing status
+
+What actually stands between the current build and a Chrome Web Store listing.
+Written down because the answer is not "the three polish items" — those are
+comfort, and these are the gate.
+
+Listing text, permission justifications and privacy answers are in
+`docs/store-listing.md`. The policy itself is `PRIVACY.md`.
+
+## Done
+
+- **Icons.** 16/32/48/128 in `extension/icons`, drawn by `tools/make-icons.py`
+  because no image library is installed here. A page, a highlighted line, and a
+  note beside it — the three shapes still read apart at 16px.
+- **`tabs` permission dropped.** Host access already covers reading the address
+  of the page being saved, so the permission bought nothing and cost review
+  scrutiny. All three suites still pass without it.
+- **Privacy policy** written, and every Privacy-tab answer decided in advance.
+- **Permission justifications** written, one per permission, including why the
+  broad host access cannot be narrowed.
+- **No remote code.** Everything is bundled; the store forbids fetching code at
+  runtime and we do not.
+- **Source is public** under AGPL-3.0, which the bundled `single-file-core`
+  requires anyway.
+
+## Also done
+
+- **Pages that cannot be captured now say so.** A page declaring
+  `base-uri 'none'` (claude.ai artifacts, some app-embedded pages) cannot be
+  copied at all: embedding its resources requires setting a base URI, and the
+  page forbids it. The capture probes for that refusal before starting and
+  returns a named reason, which the popup turns into a sentence. Covered by a
+  fixture in the M4 suite, so it stays true.
+- **The destination is shown.** The folder's name is written into the document,
+  so a reopened file can name where it saves before permission is regained
+  rather than saying only "저장 권한 필요". A path is not a capability, so this
+  is display only — the handle still has to be granted.
+
+## Before submitting
+
+- **Point at "Allow on every visit".** Chrome's permission prompt offers it, and
+  choosing it removes the once-per-session click entirely. Users who pick
+  "Allow this time" will be asked again every session and will read that as a
+  defect.
+- **Four screenshots** at 1280x800, listed in `docs/store-listing.md`.
+- **Developer registration**, one-time 5 USD.
+- **Version number.** 0.1.0 is honest but reads as unfinished in a store
+  listing; decide before the first submission, since versions cannot go
+  backwards.
+
+## Worth doing, not blocking
+
+- A first-run page explaining the one-time folder choice, since the flow makes
+  no sense until you have seen it once.
+- Localisation. The UI is Korean, the listing is English. Pick one per locale
+  rather than mixing.
+
+## What review will look like
+
+Expect weeks, not days. An extension asking for all-sites access gets an
+in-depth review, and a first submission from a new developer account is slower
+still. Two things make the case easier here: the extension makes no network
+requests of its own, and the source is public, so any claim in the listing can
+be checked against the code.
+
+The likeliest question is the broad host permission. The answer is in
+`docs/store-listing.md` and it is a real one: embedding a page's own resources
+requires cross-origin reads that a page-level script cannot perform, and the
+set of sites a user might save cannot be enumerated ahead of time.

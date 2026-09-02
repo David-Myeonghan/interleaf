@@ -14,9 +14,11 @@ const STRIP = '#interleaf-cards, #interleaf-bar, #interleaf-leader, #interleaf-t
  * @param {string} options.runtimeCss the layer's stylesheet, inlined likewise
  * @param {{url: string, title: string, capturedAt: string}} options.source
  * @param {string} options.docId identity of this document across its copies
+ * @param {string|null} options.savedIn name of the folder it was last saved in,
+ *   carried so a reopened file can say where it saves before permission returns
  * @returns {string} a complete HTML document
  */
-export function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId }) {
+export function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId, savedIn = null }) {
   const clone = document.documentElement.cloneNode(true);
 
   for (const el of clone.querySelectorAll(STRIP)) el.remove();
@@ -41,7 +43,7 @@ export function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId 
     const data = document.createElement('script');
     data.type = 'application/json';
     data.id = DATA_ID;
-    data.textContent = JSON.stringify({ version: 1, docId, source, notes }, null, 2);
+    data.textContent = JSON.stringify({ version: 1, docId, savedIn, source, notes }, null, 2);
     return data;
   });
 

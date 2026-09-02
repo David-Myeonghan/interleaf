@@ -491,7 +491,7 @@
   var RUNTIME_ID = "interleaf-runtime";
   var RUNTIME_STYLE_ID = "interleaf-runtime-style";
   var STRIP = "#interleaf-cards, #interleaf-bar, #interleaf-leader, #interleaf-toolbar-style, #interleaf-notes-style, #interleaf-boot";
-  function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId }) {
+  function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId, savedIn = null }) {
     const clone = document.documentElement.cloneNode(true);
     for (const el of clone.querySelectorAll(STRIP)) el.remove();
     unwrapMarks(clone);
@@ -510,7 +510,7 @@
       const data = document.createElement("script");
       data.type = "application/json";
       data.id = DATA_ID;
-      data.textContent = JSON.stringify({ version: 1, docId, source, notes }, null, 2);
+      data.textContent = JSON.stringify({ version: 1, docId, savedIn, source, notes }, null, 2);
       return data;
     });
     replaceNode(body, RUNTIME_ID, () => {
@@ -613,6 +613,7 @@
       this.suggestName = suggestName ?? (() => "page.html");
       this.docId = docId;
       this.ownName = ownName;
+      this.hintedDir = null;
       this.fileHandle = null;
       this.dirHandle = null;
       this.state = SaveState.unset;
@@ -623,14 +624,22 @@
       this.writing = false;
       this.pendingWhileWriting = false;
     }
+    /** Where saves go, as text. A path is not a capability, so this is display only. */
+    describePath() {
+      const dir = this.dirHandle?.name ?? this.hintedDir ?? null;
+      const file = this.fileHandle?.name ?? this.ownName ?? null;
+      if (dir && file) return `${dir}/${file}`;
+      return file ?? dir ?? null;
+    }
     status() {
       return {
         state: this.state,
         error: this.error,
         lastSavedAt: this.lastSavedAt,
         fileName: this.fileHandle?.name ?? null,
-        dirName: this.dirHandle?.name ?? null,
-        remembersFolder: !!this.dirHandle
+        dirName: this.dirHandle?.name ?? this.hintedDir ?? null,
+        remembersFolder: !!this.dirHandle,
+        path: this.describePath()
       };
     }
     set(state, error = null) {
@@ -756,6 +765,7 @@
     async chooseTarget({ rememberFolder }) {
       if (rememberFolder) {
         this.dirHandle = await window.showDirectoryPicker({ mode: "readwrite", id: "interleaf" });
+        this.hintedDir = this.dirHandle.name;
         await put(KEYS.dir, this.dirHandle);
         const status = await this.adoptInFolder(this.ownName ?? this.suggestName(), { docId: this.docId });
         if (status.state !== SaveState.ready) return status;
@@ -959,11 +969,6 @@
         return status.fileName ? `${status.fileName} \uC5D0 \uC800\uC7A5` : "\uC800\uC7A5 \uC900\uBE44\uB428";
     }
   }
-  function describeTarget(status) {
-    if (!status.fileName) return "\uC704\uCE58 \uBBF8\uC9C0\uC815";
-    if (status.remembersFolder) return `${status.dirName}/${status.fileName}`;
-    return status.fileName;
-  }
 
   // src/viewer-entry.js
   var RUNTIME_ID2 = "interleaf-runtime";
@@ -1010,13 +1015,14 @@
     const base = (data.source?.title || document.title || "page").replace(/[\/\\?%*:|"<>\x00-\x1f]/g, " ").replace(/\s+/g, " ").trim();
     return `${(base || "page").slice(0, 80)}.html`;
   }
-  function build(layer, data) {
+  function build(layer, data, saver) {
     return serializeDocument({
       notes: layer.toJSON(),
       runtimeJs: document.getElementById(RUNTIME_ID2)?.textContent ?? "",
       runtimeCss: document.getElementById(RUNTIME_STYLE_ID2)?.textContent ?? "",
       source: data.source ?? {},
-      docId: data.docId
+      docId: data.docId,
+      savedIn: saver?.dirHandle?.name ?? saver?.hintedDir ?? data.savedIn ?? null
     });
   }
   function downloadCopy(html, name) {
@@ -1034,12 +1040,13 @@
     layer.mount();
     const restoreStatus = layer.restore(data.notes ?? []);
     const saver = new Saver({
-      build: () => build(layer, data),
+      build: () => build(layer, data, saver),
       suggestName: () => suggestedName(data),
       onStatus: (status) => renderStatus(status),
       docId: data.docId,
       ownName: ownFileName()
     });
+    saver.hintedDir = data.savedIn ?? null;
     const style = document.createElement("style");
     style.id = "interleaf-bar-style";
     style.textContent = BAR_STYLE;
@@ -1073,9 +1080,9 @@
     function renderStatus(status) {
       el.status.textContent = describeStatus(status);
       el.status.className = status.state === "failed" ? "bad" : status.state === "needs-permission" ? "warn" : "note";
-      el.target.textContent = status.fileName ? `\u2192 ${describeTarget(status)}` : "";
-      el.change.hidden = !status.fileName;
-      el.forget.hidden = !status.fileName;
+      el.target.textContent = status.path ? `\u2192 ${status.path}` : "";
+      el.change.hidden = !status.remembersFolder && !status.fileName;
+      el.forget.hidden = !status.remembersFolder && !status.fileName;
       el.save.textContent = status.state === "needs-permission" ? "\uC800\uC7A5 \uD5C8\uC6A9" : "\uC774 \uD30C\uC77C\uC5D0 \uC800\uC7A5";
     }
     layer.onChange = (notes) => {
@@ -1114,7 +1121,7 @@
       data,
       saver,
       status: restoreStatus,
-      currentDocument: () => build(layer, data)
+      currentDocument: () => build(layer, data, saver)
     };
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

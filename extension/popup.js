@@ -24,9 +24,22 @@ button.onclick = async () => {
   if (res?.ok) {
     status.textContent = `${Math.round(res.bytes / 1024)}KB 복사됨. 새 탭에서 열었습니다.`;
     window.close();
-  } else {
-    status.className = 'bad';
-    status.textContent = res?.error ?? '알 수 없는 오류';
-    button.disabled = false;
+    return;
   }
+
+  status.className = 'bad';
+  status.textContent = explain(res);
+  button.disabled = false;
 };
+
+/** A named reason gets a sentence; anything else falls back to the raw message. */
+function explain(result) {
+  switch (result?.reason) {
+    case 'base-uri-blocked':
+      return '이 페이지는 저장할 수 없습니다. 페이지가 복사에 필요한 동작을 막고 있어 우회할 방법이 없습니다.';
+    case 'failed':
+      return '복사에 실패했습니다: ' + (result.error ?? '알 수 없는 오류');
+    default:
+      return result?.error ?? '알 수 없는 오류';
+  }
+}

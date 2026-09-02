@@ -1,0 +1,125 @@
+# Chrome Web Store submission material
+
+Everything a reviewer or the listing form asks for, written out so it does not
+have to be improvised at submission time. Status of each item is in
+`docs/publishing.md`.
+
+## Name
+
+Interleaf
+
+## Summary (132 characters max)
+
+Save a page as one self-contained HTML file, then write notes in its margin.
+No server, no account.
+
+## Description
+
+Interleaf copies the page you are reading into a single HTML file — images,
+stylesheets and fonts embedded — and lets you highlight text and write notes
+beside the line they belong to. The notes are stored inside that same file, so
+the file is the whole document: hand it to another computer and the notes
+travel with it.
+
+Old books were sometimes bound with blank pages slipped between the printed
+ones, so a reader could write alongside the text. Those were called interleaved
+copies. This does that to a web page.
+
+How it works
+
+- Click the toolbar button. The page is copied and opens in a new tab, looking
+  as it did.
+- Drag over any text. It is highlighted, and a note box appears beside that
+  line.
+- Stop typing and it saves itself. You choose where the first time; after that
+  it does not ask.
+- Open the saved file later, from anywhere, and the highlights and notes are
+  there — and still editable.
+
+What it does not do
+
+- Nothing is uploaded. There is no server and no account. Interleaf makes no
+  network requests of its own.
+- No tracking, no analytics, no advertising.
+- The saved file needs no extension to be read: it carries its own viewer.
+
+Known limits
+
+- Pages that forbid a base URI (some app-embedded pages) cannot be copied at
+  all; the browser blocks the step that embeds their resources.
+- Pages that load endlessly as you scroll are captured as far as they had
+  loaded.
+- Writing back to the same file works in Chrome and Chrome-based browsers.
+  Elsewhere, saving hands you a copy instead.
+
+Free software under the AGPL-3.0. Source: https://github.com/David-Myeonghan/interleaf
+
+## Category
+
+Productivity
+
+## Single purpose (required statement)
+
+Interleaf has one purpose: to save a web page as a self-contained HTML file and
+let the user annotate that file. Every permission it requests serves that one
+purpose.
+
+## Permission justifications (the reviewer form asks per permission)
+
+**Host permission — all sites.** Saving a page as one self-contained file means
+fetching that page's own images, stylesheets and fonts so they can be embedded.
+A script running inside the page cannot fetch them: the browser blocks
+cross-origin reads. The extension therefore needs access to the site being
+saved. Since the user may save a page on any site, the set of sites cannot be
+declared in advance. Access is used only for the page the user has just asked
+to save, at that moment.
+
+**scripting.** Runs the capture code inside the page being saved. There is no
+other way to read a page's rendered state, including canvas contents and
+computed styles.
+
+**storage.** Remembers the folder the user picked to save into, so later saves
+do not ask again. Nothing else is stored.
+
+**downloads.** Hands the user a copy of the file when no save location has been
+chosen — for example when they dismiss the location prompt. Without it those
+notes would have nowhere to go.
+
+**Not requested:** `tabs` (host access already covers reading the address of
+the page being saved), `history`, `cookies`, `webRequest`, `identity`, and any
+form of remote code.
+
+## Data use disclosures (the Privacy tab)
+
+- Personally identifiable information: **no**
+- Health information: **no**
+- Financial information: **no**
+- Authentication information: **no**
+- Personal communications: **no**
+- Location: **no**
+- Web history: **no** — the extension reads a page only when the user asks it
+  to save that page, and records nothing about pages visited
+- User activity: **no**
+- Website content: **yes, handled locally only** — the page being saved is read
+  and written into a file on the user's own disk. It is not transmitted.
+
+Certifications:
+
+- Not being sold to third parties: **yes**
+- Not used or transferred for purposes unrelated to the single purpose: **yes**
+- Not used or transferred to determine creditworthiness or for lending: **yes**
+
+Privacy policy URL: https://github.com/David-Myeonghan/interleaf/blob/main/PRIVACY.md
+
+## Screenshots to capture (1280x800)
+
+1. A real article with two notes open in the margin, leader line visible on the
+   active one.
+2. The first-save panel with the "save here next time too" checkbox.
+3. A saved file reopened from disk — the toolbar showing where it saves, with
+   the notes intact.
+4. The same page with notes hidden, to show the capture is untouched.
+
+## Support and homepage
+
+https://github.com/David-Myeonghan/interleaf

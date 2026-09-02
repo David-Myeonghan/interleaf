@@ -58,13 +58,14 @@ function suggestedName(data) {
   return `${(base || 'page').slice(0, 80)}.html`;
 }
 
-function build(layer, data) {
+function build(layer, data, saver) {
   return serializeDocument({
     notes: layer.toJSON(),
     runtimeJs: document.getElementById(RUNTIME_ID)?.textContent ?? '',
     runtimeCss: document.getElementById(RUNTIME_STYLE_ID)?.textContent ?? '',
     source: data.source ?? {},
     docId: data.docId,
+    savedIn: saver?.dirHandle?.name ?? saver?.hintedDir ?? data.savedIn ?? null,
   });
 }
 
@@ -86,12 +87,13 @@ function boot() {
   const restoreStatus = layer.restore(data.notes ?? []);
 
   const saver = new Saver({
-    build: () => build(layer, data),
+    build: () => build(layer, data, saver),
     suggestName: () => suggestedName(data),
     onStatus: (status) => renderStatus(status),
     docId: data.docId,
     ownName: ownFileName(),
   });
+  saver.hintedDir = data.savedIn ?? null;
 
   const style = document.createElement('style');
   style.id = 'interleaf-bar-style';
@@ -134,9 +136,11 @@ function boot() {
       : status.state === 'needs-permission' ? 'warn' : 'note';
     // Where saves go must be visible; a tool that quietly writes somewhere is
     // worse than one that asks.
-    el.target.textContent = status.fileName ? `→ ${describeTarget(status)}` : '';
-    el.change.hidden = !status.fileName;
-    el.forget.hidden = !status.fileName;
+    // Named even while the handle is unusable, so "저장 권한 필요" is not the
+    // only thing a reopened file can say about where it goes.
+    el.target.textContent = status.path ? `→ ${status.path}` : '';
+    el.change.hidden = !status.remembersFolder && !status.fileName;
+    el.forget.hidden = !status.remembersFolder && !status.fileName;
     el.save.textContent = status.state === 'needs-permission' ? '저장 허용' : '이 파일에 저장';
   }
 
@@ -188,7 +192,7 @@ function boot() {
     data,
     saver,
     status: restoreStatus,
-    currentDocument: () => build(layer, data),
+    currentDocument: () => build(layer, data, saver),
   };
 }
 

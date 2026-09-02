@@ -3,7 +3,7 @@
 // native windows CDP cannot drive, so choosing a target stays hand-driven and is
 // covered by scripts/m4-manual.md.
 import * as cdp from './cdp.mjs';
-import { openExtension, captureInto, closeTabs, waitForPage, openPage } from './harness.mjs';
+import { openExtension, captureInto, closeTabs, waitForPage, openPage, tabIdFor } from './harness.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -142,14 +142,18 @@ const fileUi = JSON.parse(await opened.eval(`JSON.stringify({
   changeHidden: document.getElementById('interleaf-change').hidden,
   forgetHidden: document.getElementById('interleaf-forget').hidden,
   status: document.getElementById('interleaf-status').textContent,
+  target: document.getElementById('interleaf-target').textContent,
   hasChromeApi: typeof chrome !== 'undefined' && !!chrome.runtime,
 })`));
 console.log('saved file toolbar:', fileUi);
 check(!fileUi.hasChromeApi, 'the saved file reached a chrome API');
 check(fileUi.saveLabel.includes('저장'), `unexpected save button label: ${fileUi.saveLabel}`);
-if (!onOpen.fileName) {
-  check(fileUi.changeHidden && fileUi.forgetHidden, 'location controls shown with no location known');
+if (!onOpen.fileName && !onOpen.remembersFolder) {
+  check(fileUi.changeHidden && fileUi.forgetHidden, 'location controls shown with no destination known');
 }
+// The path may be shown as a hint read from the document even before a handle
+// is usable; that is display, not a claim that a destination exists.
+check(typeof fileUi.target === 'string', 'the toolbar should always render a target line');
 
 // A folder holds other files. A name collision must never overwrite a stranger.
 // The dir handle is stubbed because showDirectoryPicker is a native window.
@@ -266,6 +270,18 @@ console.log('\nreopened file picks its own file:', reopened);
 check(reopened.target === 'self.html',
   `picking a folder from a reopened file should adopt self.html, got ${reopened.target}`);
 check(reopened.state === 'ready', `expected ready after adopting, got ${reopened.state}`);
+
+// A page forbidding base-uri cannot be captured at all. The refusal has to
+// arrive as a named reason the popup can put into words, not as a crash.
+const NO_BASE = FIXTURE.replace(/[^/]+$/, 'no-base.html');
+await openPage(NO_BASE, 'base-uri fixture');
+const refusedTabId = await tabIdFor(popup, NO_BASE);
+const refused = JSON.parse(await popup.eval(
+  `chrome.runtime.sendMessage({ type: 'capture', tabId: ${refusedTabId} }).then(r => JSON.stringify(r))`));
+console.log('\npage forbidding base-uri:', refused);
+check(refused.ok === false, 'a page forbidding base-uri should not report success');
+check(refused.reason === 'base-uri-blocked',
+  `expected reason base-uri-blocked, got ${refused.reason}`);
 
 console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: save states, panel, coalescing, no write on open, no clobbering neighbours');
 popup.close(); ed.close(); opened.close();

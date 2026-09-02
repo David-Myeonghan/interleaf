@@ -35,6 +35,9 @@ export class Saver {
     // because a name collision was treated as a stranger.
     this.docId = docId;
     this.ownName = ownName;
+    // Read from the document when it was saved before, so the destination can
+    // be shown while the handle is still unusable.
+    this.hintedDir = null;
     this.fileHandle = null;
     this.dirHandle = null;
     this.state = SaveState.unset;
@@ -46,14 +49,23 @@ export class Saver {
     this.pendingWhileWriting = false;
   }
 
+  /** Where saves go, as text. A path is not a capability, so this is display only. */
+  describePath() {
+    const dir = this.dirHandle?.name ?? this.hintedDir ?? null;
+    const file = this.fileHandle?.name ?? this.ownName ?? null;
+    if (dir && file) return `${dir}/${file}`;
+    return file ?? dir ?? null;
+  }
+
   status() {
     return {
       state: this.state,
       error: this.error,
       lastSavedAt: this.lastSavedAt,
       fileName: this.fileHandle?.name ?? null,
-      dirName: this.dirHandle?.name ?? null,
+      dirName: this.dirHandle?.name ?? this.hintedDir ?? null,
       remembersFolder: !!this.dirHandle,
+      path: this.describePath(),
     };
   }
 
@@ -195,6 +207,7 @@ export class Saver {
     if (rememberFolder) {
       // A folder handle is what makes every later save silent.
       this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'interleaf' });
+      this.hintedDir = this.dirHandle.name;
       await store.put(store.KEYS.dir, this.dirHandle);
       // adoptInFolder compares the stamped id, so this document's own file is
       // taken in place and only a genuine stranger is stepped around.
