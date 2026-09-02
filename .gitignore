@@ -5,3 +5,5 @@ m0/chrome.log
 m0/*.html
 extension/sf-bundle.js
 probe/sf-bundle.js
+.dev-profile/
+test/out/

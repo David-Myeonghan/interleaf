@@ -1,0 +1,12 @@
+@font-face {
+  font-family: 'FixtureMono';
+  src: url('font.woff2') format('woff2');
+}
+body {
+  font: 16px/1.7 -apple-system, system-ui, sans-serif;
+  max-width: 680px; margin: 40px auto; padding: 0 20px;
+  background: #fffdf7; color: #23262b;
+}
+h1 { font-family: 'FixtureMono', ui-monospace, monospace; }
+.badge { background: #2b6cb0; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+img { border: 1px solid #ddd; border-radius: 6px; }

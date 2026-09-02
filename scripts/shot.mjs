@@ -1,0 +1,11 @@
+import * as cdp from './cdp.mjs';
+import fs from 'node:fs';
+const [urlPrefix, out] = process.argv.slice(2);
+const t = (await cdp.targets()).find((x) => x.url.startsWith(urlPrefix));
+if (!t) throw new Error('no tab matching ' + urlPrefix);
+const c = cdp.connect(t.webSocketDebuggerUrl);
+await c.send('Page.enable');
+const { data } = await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+fs.writeFileSync(out, Buffer.from(data, 'base64'));
+console.log('wrote', out);
+c.close();
