@@ -31,48 +31,33 @@ export function contentRightEdge() {
 }
 
 /**
- * Decides where the cards column sits and whether the page must give up width.
+ * Decides where the cards column sits, and whether it ends up over the page's
+ * own content.
  *
- * The reserve is dropped before measuring. Measuring with it in place feeds the
- * layer its own output: reserving width narrows the content, the narrowed
- * content then looks like free space, the reserve is dropped, and the decision
- * oscillates between passes.
+ * The captured page is never reflowed. Reserving width can break a layout
+ * outright — absolutely positioned elements, grids, sticky chrome — and the
+ * only way back from a broken layout is to hide the notes. Overlaying merely
+ * occludes, which folding or the hide button undoes. The recoverable loss wins.
  *
- * @returns {{left: number, width: number, reflow: boolean}}
+ * @returns {{left: number, width: number, overContent: boolean}}
  */
 export function measureGutter() {
-  const root = document.documentElement;
-  const hadReserve = 'interleafReflow' in root.dataset;
-  if (hadReserve) {
-    delete root.dataset.interleafReflow;
-    // Forces the style change to take effect before the rects are read.
-    void document.body.offsetWidth;
-  }
-
-  const viewport = root.clientWidth;
+  const viewport = document.documentElement.clientWidth;
   const content = contentRightEdge();
-
-  if (hadReserve) root.dataset.interleafReflow = '1';
-  const free = viewport - content - GAP - EDGE;
-
-  if (free >= CARD_WIDTH) {
-    // Sit in the empty page beside the text, flush to the right but never so far
-    // that a very narrow column leaves the cards stranded at the window edge.
-    const left = Math.min(content + GAP, viewport - CARD_WIDTH - EDGE);
-    return { left, width: CARD_WIDTH, reflow: false };
-  }
-
-  return { left: viewport - CARD_WIDTH - EDGE, width: CARD_WIDTH, reflow: true };
+  const left = Math.max(
+    Math.min(content + GAP, viewport - CARD_WIDTH - EDGE),
+    EDGE,
+  );
+  return { left, width: CARD_WIDTH, overContent: left < content };
 }
 
-/** Applies the measurement: positions the column and toggles the reflow. */
+/** Applies the measurement: positions the column and flags the overlap. */
 export function applyGutter(host) {
-  const { left, width, reflow } = measureGutter();
-  host.style.left = `${Math.round(left)}px`;
-  host.style.width = `${width}px`;
+  const measured = measureGutter();
+  host.style.left = `${Math.round(measured.left)}px`;
+  host.style.width = `${measured.width}px`;
   const root = document.documentElement;
-  if (reflow) root.dataset.interleafReflow = '1';
-  else delete root.dataset.interleafReflow;
-  root.style.setProperty('--il-gutter-reserve', reflow ? `${width + GAP + EDGE}px` : '0px');
-  return { left, width, reflow };
+  if (measured.overContent) root.dataset.interleafOverlay = '';
+  else delete root.dataset.interleafOverlay;
+  return measured;
 }

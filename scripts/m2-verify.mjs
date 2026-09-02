@@ -102,7 +102,7 @@ const report = JSON.parse(await ed.eval(`(() => {
     markCount: document.querySelectorAll('il-mark').length,
     overlaps,
     gutterPaddingRight: bodyStyle.paddingRight,
-    reflowed: 'interleafReflow' in document.documentElement.dataset,
+    overContent: 'interleafOverlay' in document.documentElement.dataset,
     gutter: layer.gutter,
     diag: {
       clientWidth: document.documentElement.clientWidth,
@@ -132,7 +132,13 @@ console.log(report);
 // ones reserve room. And in either case the cards must not sit over the text.
 const probe = async (width, label) => {
   await ed.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
-  await new Promise((r) => setTimeout(r, 600));
+  // A fixed sleep raced the metrics change once and reported nonsense. Wait for
+  // the page to actually see the new width, then for a settled layout pass.
+  await cdp.waitFor(
+    () => ed.eval(`Math.abs(document.documentElement.clientWidth - ${width}) < 40`),
+    { label: `viewport ${width}` },
+  );
+  await ed.eval('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
   const out = JSON.parse(await ed.eval(`(() => {
     const layer = window.__interleaf.layer;
     const cards = [...layer.notes.entries()].map(([id, { card }]) => {
@@ -155,7 +161,7 @@ const probe = async (width, label) => {
 
     return JSON.stringify({
       viewport: document.documentElement.clientWidth,
-      reflowed: 'interleafReflow' in document.documentElement.dataset,
+      overContent: 'interleafOverlay' in document.documentElement.dataset,
       bodyPaddingRight: getComputedStyle(document.body).paddingRight,
       textRight: Math.round(textRight),
       cardsLeft: Math.min(...cards.map(c => c.left)),
@@ -175,14 +181,17 @@ const wide = await probe(1800, 'wide  1800:');
 const narrow = await probe(1000, 'narrow 1000:');
 
 const failures = [];
-if (wide.reflowed) failures.push('wide viewport should not reflow the capture');
-if (wide.bodyPaddingRight !== '20px') failures.push('wide viewport changed body padding: ' + wide.bodyPaddingRight);
-if (!narrow.reflowed) failures.push('narrow viewport should reserve room');
+// The capture must never be reflowed, at any width.
 for (const [label, r] of [['wide', wide], ['narrow', narrow]]) {
-  if (r.cardsOverText) failures.push(label + ': cards sit over the text');
+  if (r.bodyPaddingRight !== '20px') failures.push(label + ': body padding changed to ' + r.bodyPaddingRight);
   if (r.overlaps) failures.push(label + ': ' + r.overlaps + ' overlapping cards');
+  if (r.cardsLeft + 296 > r.viewport) failures.push(label + ': cards run off the right edge');
 }
+// Wide leaves empty margin; narrow must land over the text and say so.
+if (wide.overContent) failures.push('wide viewport should not overlay the text');
+if (wide.cardsOverText) failures.push('wide: cards sit over the text');
+if (!narrow.overContent) failures.push('narrow viewport should flag the overlay');
 
-console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: both gutter branches hold');
+console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: capture never reflowed; overlay flagged only when it happens');
 
 pop.close(); ed.close();

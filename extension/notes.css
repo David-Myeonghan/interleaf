@@ -15,18 +15,21 @@
   --il-muted: #7b8189;
 }
 
-/* The toolbar always needs room. Width, by contrast, is only taken when the
-   measured content actually fills the window - most pages have empty page beside
-   the text and the cards are laid over that, leaving the capture untouched. */
+/* The toolbar needs room; nothing else does. The captured page is never
+   reflowed - cards are laid over whatever is beside the text. */
 html[data-interleaf] body {
   padding-top: var(--il-bar-h, 34px) !important;
   box-sizing: border-box !important;
 }
-html[data-interleaf-reflow] body {
-  padding-right: var(--il-gutter-reserve, 0px) !important;
+/* Cards laid over the page's own text are translucent until pointed at, so the
+   words underneath stay readable. Pages with empty margin never get this. */
+html[data-interleaf-overlay] .il-card {
+  opacity: .82;
+  backdrop-filter: blur(1px);
 }
-html[data-interleaf="notes-hidden"] body {
-  padding-right: 0 !important;
+html[data-interleaf-overlay] .il-card:hover,
+html[data-interleaf-overlay] .il-card[data-active] {
+  opacity: 1;
 }
 
 il-mark {
