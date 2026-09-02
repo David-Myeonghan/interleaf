@@ -957,7 +957,7 @@
       case "unset":
         return "\uC800\uC7A5 \uC704\uCE58 \uC5C6\uC74C";
       case "needs-permission":
-        return "\uC800\uC7A5 \uAD8C\uD55C \uD544\uC694";
+        return '\uC800\uC7A5 \uAD8C\uD55C \uD544\uC694 \u2014 \uBC84\uD2BC\uC744 \uB204\uB974\uACE0 "\uB9E4\uBC88 \uD5C8\uC6A9"\uC744 \uACE0\uB974\uBA74 \uB2E4\uC2DC \uBB3B\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4';
       case "saving":
         return "\uC800\uC7A5 \uC911\u2026";
       case "saved":

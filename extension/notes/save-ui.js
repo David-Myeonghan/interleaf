@@ -107,7 +107,7 @@ export function describeStatus(status) {
     case 'unset':
       return '저장 위치 없음';
     case 'needs-permission':
-      return '저장 권한 필요';
+      return '저장 권한 필요 — 버튼을 누르고 "매번 허용"을 고르면 다시 묻지 않습니다';
     case 'saving':
       return '저장 중…';
     case 'saved':

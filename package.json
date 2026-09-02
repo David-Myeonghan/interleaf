@@ -1,6 +1,6 @@
 {
   "name": "interleaf",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Save a web page as one self-contained HTML file and write notes in its margin.",
   "scripts": {
     "build": "node scripts/stamp-build.mjs && npm run build:capture && npm run build:viewer",
@@ -8,7 +8,8 @@
     "build:viewer": "esbuild src/viewer-entry.js --bundle --format=iife --platform=browser --outfile=extension/viewer-runtime.js",
     "watch": "esbuild src/viewer-entry.js --bundle --format=iife --platform=browser --outfile=extension/viewer-runtime.js --watch",
     "fixture": "node scripts/fixture-server.mjs",
-    "verify": "node scripts/m2-verify.mjs && node scripts/m3-verify.mjs && node scripts/m4-verify.mjs"
+    "verify": "node scripts/m2-verify.mjs && node scripts/m3-verify.mjs && node scripts/m4-verify.mjs",
+    "package": "bash scripts/package.sh"
   },
   "keywords": [],
   "author": "",
