@@ -1,13 +1,32 @@
 {
   "manifest_version": 3,
-  "name": "SnapNote",
+  "name": "Interleaf",
   "version": "0.1.0",
   "description": "Save a page as one self-contained HTML file and write notes in its margin.",
-  "permissions": ["scripting", "storage", "downloads", "tabs"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "sw.js", "type": "module" },
-  "action": { "default_popup": "popup.html" },
+  "permissions": [
+    "scripting",
+    "storage",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
   "web_accessible_resources": [
-    { "resources": ["sf-bundle.js"], "matches": ["<all_urls>"] }
+    {
+      "resources": [
+        "sf-bundle.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }

@@ -2,4 +2,4 @@
 // single-file-core is AGPL-3.0; see NOTICE.
 import { getPageData, init } from 'single-file-core/single-file.js';
 
-globalThis.__snapnoteCapture = { getPageData, init };
+globalThis.__interleafCapture = { getPageData, init };

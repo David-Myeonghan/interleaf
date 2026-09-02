@@ -33,7 +33,7 @@ async function capture(tabId) {
     args: [CAPTURE_OPTIONS, CAPTURE_TIMEOUT_MS],
     func: async (options, timeoutMs) => {
       const data = await Promise.race([
-        globalThis.__snapnoteCapture.getPageData(options, {}),
+        globalThis.__interleafCapture.getPageData(options, {}),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('capture timed out after ' + timeoutMs + 'ms')), timeoutMs)),
       ]);

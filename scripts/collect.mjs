@@ -2,8 +2,9 @@ import * as cdp from './cdp.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.join(os.homedir(), 'person/snapnote');
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PROBE_DIR = path.join(ROOT, 'probe');
 const SECURE = path.join(ROOT, 'm0/chrome-profile/Default/Secure Preferences');
 

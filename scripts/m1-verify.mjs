@@ -49,7 +49,7 @@ const ed = cdp.connect(editorTarget.webSocketDebuggerUrl);
 const rendered = JSON.parse(await ed.eval(`JSON.stringify({
   title: document.title,
   h1: document.querySelector('h1')?.textContent?.trim() ?? null,
-  toolbar: !!document.getElementById('snapnote-bar'),
+  toolbar: !!document.getElementById('interleaf-bar'),
   imgCount: document.images.length,
   imgSrcIsInline: [...document.images].map(i => i.currentSrc.slice(0, 12)),
   imgLoaded: [...document.images].map(i => i.complete && i.naturalWidth > 0),

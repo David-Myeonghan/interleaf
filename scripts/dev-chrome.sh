@@ -2,7 +2,7 @@
 # Chrome for Testing still honours --load-extension, which branded Chrome dropped
 # in 137. Used for self-verification; the real install path stays Load Unpacked.
 set -euo pipefail
-ROOT="$HOME/person/snapnote"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CFT="$ROOT/.browsers/chrome/mac_arm-152.0.7977.75/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
 PROFILE="$ROOT/.dev-profile"
 mkdir -p "$PROFILE"

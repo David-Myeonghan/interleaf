@@ -1,7 +1,7 @@
 {
-  "name": "snapnote",
+  "name": "interleaf",
   "version": "0.1.0",
-  "description": "",
+  "description": "Save a web page as one self-contained HTML file and write notes in its margin.",
   "scripts": {
     "build": "esbuild src/capture-entry.js --bundle --format=iife --platform=browser --minify --outfile=extension/sf-bundle.js",
     "watch": "npm run build -- --watch"
