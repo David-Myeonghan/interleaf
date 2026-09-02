@@ -51,7 +51,10 @@ async function capture(tabId) {
     args: [CAPTURE_OPTIONS, CAPTURE_TIMEOUT_MS],
     func: async (options, timeoutMs) => {
       const data = await Promise.race([
-        globalThis.__interleafCapture.getPageData(options, {}),
+        // The page's own address must be passed in: without it the engine sets a
+        // base URI ending in "undefined" and every relative link in the capture
+        // resolves against the wrong place.
+        globalThis.__interleafCapture.getPageData({ ...options, url: location.href }, {}),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('capture timed out after ' + timeoutMs + 'ms')), timeoutMs)),
       ]);
