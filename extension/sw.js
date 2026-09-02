@@ -49,7 +49,16 @@ async function captureAndOpenEditor(tabId) {
   const snapshot = await capture(tabId);
   const id = 'snap-' + Date.now().toString(36);
   await chrome.storage.session.set({
-    [id]: { ...snapshot, capturedAt: new Date().toISOString(), name: slug(snapshot.title, 'page') },
+    [id]: {
+      ...snapshot,
+      // Stamped once, carried in every saved copy. It is how a file is
+      // recognised as this same document rather than one that merely shares a
+      // title, which is what keeps a remembered folder from clobbering a
+      // neighbour of the same name.
+      docId: crypto.randomUUID(),
+      capturedAt: new Date().toISOString(),
+      name: slug(snapshot.title, 'page'),
+    },
   });
   const editor = await chrome.tabs.create({ url: chrome.runtime.getURL(`editor.html?id=${id}`) });
   return { ok: true, id, bytes: snapshot.html.length, title: snapshot.title, editorTabId: editor.id };

@@ -1,21 +1,12 @@
 // The runtime that ships inside a saved file. It runs from `file://` with no
 // extension present, so it may not touch any chrome.* API.
 import { NoteLayer } from '../extension/notes/notes.js';
-import { serializeDocument } from '../extension/notes/serialize.js';
-import { DATA_ID } from '../extension/notes/serialize.js';
+import { serializeDocument, DATA_ID } from '../extension/notes/serialize.js';
+import { Saver } from '../extension/notes/save.js';
+import { askWhereToSave, describeStatus, describeTarget } from '../extension/notes/save-ui.js';
 
 const RUNTIME_ID = 'interleaf-runtime';
 const RUNTIME_STYLE_ID = 'interleaf-runtime-style';
-
-function readData() {
-  const el = document.getElementById(DATA_ID);
-  if (!el) return { version: 1, source: {}, notes: [] };
-  try {
-    return JSON.parse(el.textContent);
-  } catch {
-    return { version: 1, source: {}, notes: [], parseError: true };
-  }
-}
 
 const BAR_STYLE = `
 #interleaf-bar {
@@ -33,19 +24,52 @@ const BAR_STYLE = `
 }
 #interleaf-bar button:hover { background: #39424f; }
 #interleaf-bar button[data-on] { background: #4a5162; }
+#interleaf-bar button.link {
+  border: 0; background: none; padding: 2px 4px; text-decoration: underline; color: #9aa3b2;
+}
+#interleaf-bar button.link:hover { color: #e8e8ea; background: none; }
 #interleaf-bar .note { color: #9aa3b2; }
+#interleaf-bar .warn { color: #ffb86b; }
+#interleaf-bar .bad { color: #ff8f7a; }
 `;
 
-function currentDocument(layer, data) {
+function readData() {
+  const el = document.getElementById(DATA_ID);
+  if (!el) return { version: 1, source: {}, notes: [] };
+  try {
+    return JSON.parse(el.textContent);
+  } catch {
+    return { version: 1, source: {}, notes: [], parseError: true };
+  }
+}
+
+/** This document's own filename, when it was opened from disk. */
+function ownFileName() {
+  if (location.protocol !== 'file:') return null;
+  const name = decodeURIComponent(location.pathname.split('/').pop() ?? '');
+  return name || null;
+}
+
+function suggestedName(data) {
+  const base = (data.source?.title || document.title || 'page')
+    .replace(/[\/\\?%*:|"<>\x00-\x1f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${(base || 'page').slice(0, 80)}.html`;
+}
+
+function build(layer, data) {
   return serializeDocument({
     notes: layer.toJSON(),
     runtimeJs: document.getElementById(RUNTIME_ID)?.textContent ?? '',
     runtimeCss: document.getElementById(RUNTIME_STYLE_ID)?.textContent ?? '',
     source: data.source ?? {},
+    docId: data.docId,
   });
 }
 
-function download(html, name) {
+/** Last resort when the file cannot be written: hand over a copy instead. */
+function downloadCopy(html, name) {
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -55,7 +79,18 @@ function download(html, name) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
-function mountBar(layer, data, status) {
+function boot() {
+  const data = readData();
+  const layer = new NoteLayer();
+  layer.mount();
+  const restoreStatus = layer.restore(data.notes ?? []);
+
+  const saver = new Saver({
+    build: () => build(layer, data),
+    suggestName: () => suggestedName(data),
+    onStatus: (status) => renderStatus(status),
+  });
+
   const style = document.createElement('style');
   style.id = 'interleaf-bar-style';
   style.textContent = BAR_STYLE;
@@ -66,46 +101,93 @@ function mountBar(layer, data, status) {
   bar.innerHTML = `
     <strong>Interleaf</strong>
     <span class="note" id="interleaf-count"></span>
-    <span class="grow note" id="interleaf-source"></span>
+    <span class="note" id="interleaf-status"></span>
+    <span class="grow note" id="interleaf-target"></span>
+    <button class="link" id="interleaf-change" type="button" hidden>바꾸기</button>
+    <button class="link" id="interleaf-forget" type="button" hidden>기억 해제</button>
     <button id="interleaf-toggle" type="button">노트 숨기기</button>
-    <button id="interleaf-save" type="button">사본 내려받기</button>
+    <button id="interleaf-save" type="button">이 파일에 저장</button>
   `;
   document.body.appendChild(bar);
 
-  const count = document.getElementById('interleaf-count');
-  const render = (notes) => {
-    const orphans = status.orphaned.length;
-    count.textContent = `노트 ${notes.length}개` + (orphans ? ` · 원문 못 찾음 ${orphans}개` : '');
+  const el = {
+    count: document.getElementById('interleaf-count'),
+    status: document.getElementById('interleaf-status'),
+    target: document.getElementById('interleaf-target'),
+    change: document.getElementById('interleaf-change'),
+    forget: document.getElementById('interleaf-forget'),
+    save: document.getElementById('interleaf-save'),
+    toggle: document.getElementById('interleaf-toggle'),
   };
-  layer.onChange = render;
-  render(layer.toJSON());
 
-  document.getElementById('interleaf-source').textContent = data.source?.url ?? location.href;
+  function renderCount(notes) {
+    const orphans = restoreStatus.orphaned.length;
+    el.count.textContent = `노트 ${notes.length}개` + (orphans ? ` · 원문 못 찾음 ${orphans}개` : '');
+  }
 
-  const toggle = document.getElementById('interleaf-toggle');
-  toggle.onclick = () => {
-    const hidden = !('on' in toggle.dataset);
-    if (hidden) toggle.dataset.on = '';
-    else delete toggle.dataset.on;
-    toggle.textContent = hidden ? '노트 보이기' : '노트 숨기기';
+  function renderStatus(status) {
+    el.status.textContent = describeStatus(status);
+    el.status.className = status.state === 'failed'
+      ? 'bad'
+      : status.state === 'needs-permission' ? 'warn' : 'note';
+    // Where saves go must be visible; a tool that quietly writes somewhere is
+    // worse than one that asks.
+    el.target.textContent = status.fileName ? `→ ${describeTarget(status)}` : '';
+    el.change.hidden = !status.fileName;
+    el.forget.hidden = !status.fileName;
+    el.save.textContent = status.state === 'needs-permission' ? '저장 허용' : '이 파일에 저장';
+  }
+
+  layer.onChange = (notes) => {
+    renderCount(notes);
+    if (saver.fileHandle) saver.schedule();
+  };
+  renderCount(layer.toJSON());
+
+  el.toggle.onclick = () => {
+    const hidden = !('on' in el.toggle.dataset);
+    if (hidden) el.toggle.dataset.on = '';
+    else delete el.toggle.dataset.on;
+    el.toggle.textContent = hidden ? '노트 보이기' : '노트 숨기기';
     layer.setNotesHidden(hidden);
   };
 
-  document.getElementById('interleaf-save').onclick = () => {
-    const name = (data.source?.title || document.title || 'page').replace(/[\/\\?%*:|"<>]/g, ' ').slice(0, 80);
-    download(currentDocument(layer, data), `${name}.html`);
+  const pickTarget = () => askWhereToSave((choice) =>
+    saver.chooseTarget(choice).then(() => saver.saveNow()));
+
+  el.save.onclick = async () => {
+    if (saver.state === 'needs-permission') {
+      const status = await saver.grant();
+      if (status.state === 'ready') await saver.saveNow();
+      return;
+    }
+    if (!saver.fileHandle) {
+      const picked = await pickTarget();
+      if (!picked) {
+        // Nowhere to write, but the notes still exist and must be rescuable.
+        downloadCopy(build(layer, data), suggestedName(data));
+      }
+      return;
+    }
+    await saver.saveNow();
   };
-}
 
-function boot() {
-  const data = readData();
-  const layer = new NoteLayer();
-  layer.mount();
-  const status = layer.restore(data.notes ?? []);
-  mountBar(layer, data, status);
+  el.change.onclick = () => pickTarget();
+  el.forget.onclick = () => saver.forget();
 
-  // The harness drives selections and reads state through this.
-  window.__interleaf = { layer, data, status, currentDocument: () => currentDocument(layer, data) };
+  // A folder plus this document's own filename is this same file, so a saved
+  // file reopened from disk usually needs no picker - only the one permission
+  // click that a restored handle costs per browser session.
+  // Nothing is written on open: the file on disk already matches what is shown.
+  saver.restoreFile(ownFileName(), data.docId);
+
+  window.__interleaf = {
+    layer,
+    data,
+    saver,
+    status: restoreStatus,
+    currentDocument: () => build(layer, data),
+  };
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

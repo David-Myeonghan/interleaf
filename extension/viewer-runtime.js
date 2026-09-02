@@ -491,7 +491,7 @@
   var RUNTIME_ID = "interleaf-runtime";
   var RUNTIME_STYLE_ID = "interleaf-runtime-style";
   var STRIP = "#interleaf-cards, #interleaf-bar, #interleaf-leader, #interleaf-toolbar-style, #interleaf-notes-style, #interleaf-boot";
-  function serializeDocument({ notes, runtimeJs, runtimeCss, source }) {
+  function serializeDocument({ notes, runtimeJs, runtimeCss, source, docId }) {
     const clone = document.documentElement.cloneNode(true);
     for (const el of clone.querySelectorAll(STRIP)) el.remove();
     unwrapMarks(clone);
@@ -510,7 +510,7 @@
       const data = document.createElement("script");
       data.type = "application/json";
       data.id = DATA_ID;
-      data.textContent = JSON.stringify({ version: 1, source, notes }, null, 2);
+      data.textContent = JSON.stringify({ version: 1, docId, source, notes }, null, 2);
       return data;
     });
     replaceNode(body, RUNTIME_ID, () => {
@@ -521,8 +521,8 @@
     });
     return "<!doctype html>\n" + clone.outerHTML;
   }
-  function replaceNode(parent, id, build) {
-    const fresh = build();
+  function replaceNode(parent, id, build2) {
+    const fresh = build2();
     const existing = parent.querySelector(`#${id}`);
     if (existing) existing.replaceWith(fresh);
     else parent.appendChild(fresh);
@@ -537,18 +537,437 @@
     root.normalize();
   }
 
+  // extension/notes/storage.js
+  var DB_NAME = "interleaf";
+  var STORE = "handles";
+  var VERSION = 1;
+  function open() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async function withStore(mode, run) {
+    const db = await open();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = run(db.transaction(STORE, mode).objectStore(STORE));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  }
+  async function put(key, value) {
+    try {
+      await withStore("readwrite", (store) => store.put(value, key));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function get(key) {
+    try {
+      return await withStore("readonly", (store) => store.get(key));
+    } catch {
+      return void 0;
+    }
+  }
+  async function remove(key) {
+    try {
+      await withStore("readwrite", (store) => store.delete(key));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  var KEYS = { file: "target-file", dir: "target-dir" };
+
+  // extension/notes/save.js
+  var AUTOSAVE_DELAY = 1200;
+  var SaveState = {
+    unset: "unset",
+    ready: "ready",
+    saving: "saving",
+    saved: "saved",
+    needsPermission: "needs-permission",
+    failed: "failed"
+  };
+  var Saver = class {
+    /**
+     * @param {object} options
+     * @param {() => Promise<string> | string} options.build produces the document to write
+     * @param {(status: object) => void} [options.onStatus]
+     * @param {() => string} [options.suggestName] filename for a fresh target
+     */
+    constructor({ build: build2, onStatus, suggestName }) {
+      this.build = build2;
+      this.onStatus = onStatus ?? (() => {
+      });
+      this.suggestName = suggestName ?? (() => "page.html");
+      this.fileHandle = null;
+      this.dirHandle = null;
+      this.state = SaveState.unset;
+      this.error = null;
+      this.lastSavedAt = null;
+      this.timer = null;
+      this.pending = null;
+      this.writing = false;
+      this.pendingWhileWriting = false;
+    }
+    status() {
+      return {
+        state: this.state,
+        error: this.error,
+        lastSavedAt: this.lastSavedAt,
+        fileName: this.fileHandle?.name ?? null,
+        dirName: this.dirHandle?.name ?? null,
+        remembersFolder: !!this.dirHandle
+      };
+    }
+    set(state, error = null) {
+      this.state = state;
+      this.error = error;
+      this.onStatus(this.status());
+    }
+    /**
+     * Loads the remembered folder, if any. The remembered *file* is deliberately
+     * not adopted here: in the capture flow it belongs to a previous page, and
+     * inheriting it would overwrite that page with this one.
+     */
+    async restoreFolder() {
+      this.dirHandle = await get(KEYS.dir) ?? null;
+      this.set(this.fileHandle ? this.state : SaveState.unset);
+      return this.status();
+    }
+    /**
+     * Takes a file inside the remembered folder as the save target. This is what
+     * makes later captures silent.
+     *
+     * A folder holds other files, so a name is not an identity. An existing file
+     * of this name is opened and its stamped `docId` compared; only a match is
+     * adopted. Anything else - another capture that happens to share a title, or
+     * a file the user put there - is stepped around by taking the next free name.
+     * Overwriting a stranger with no dialog would be data loss.
+     *
+     * A restored folder handle starts at `prompt` and reading inside it then
+     * throws, so the request is held for `grant()` to retry after the one click.
+     */
+    async adoptInFolder(name, { docId = null, create = true } = {}) {
+      if (!this.dirHandle) return this.status();
+      this.pending = { name, docId, create };
+      const permission = await this.dirHandle.queryPermission({ mode: "readwrite" });
+      if (permission !== "granted") {
+        this.set(SaveState.needsPermission);
+        return this.status();
+      }
+      try {
+        const existing = await this.getFileHandle(name);
+        if (existing && await readDocId(existing) === docId && docId) {
+          this.fileHandle = existing;
+        } else if (existing && !create) {
+          this.set(SaveState.unset);
+          return this.status();
+        } else if (existing) {
+          this.fileHandle = await this.dirHandle.getFileHandle(await this.freeName(name), { create: true });
+        } else if (create) {
+          this.fileHandle = await this.dirHandle.getFileHandle(name, { create: true });
+        } else {
+          this.set(SaveState.unset);
+          return this.status();
+        }
+        await put(KEYS.file, this.fileHandle);
+        this.pending = null;
+        this.set(SaveState.ready);
+      } catch (e) {
+        this.set(create ? SaveState.failed : SaveState.unset, String(e?.message ?? e));
+      }
+      return this.status();
+    }
+    /** The handle for `name` in the remembered folder, or null when absent. */
+    async getFileHandle(name) {
+      try {
+        return await this.dirHandle.getFileHandle(name, { create: false });
+      } catch (e) {
+        if (e?.name === "NotFoundError") return null;
+        throw e;
+      }
+    }
+    /** `page.html` -> `page (2).html`, counting up until the folder has no such file. */
+    async freeName(name) {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const extension = dot > 0 ? name.slice(dot) : "";
+      for (let n = 2; n < 1e3; n++) {
+        const candidate = `${stem} (${n})${extension}`;
+        if (!await this.getFileHandle(candidate)) return candidate;
+      }
+      return `${stem} (${Date.now()})${extension}`;
+    }
+    /**
+     * Adopts this document's own file. A remembered folder plus this document's
+     * own filename is usually the same file on disk, so a saved file reopened
+     * from disk needs no picker - but the folder may be a different one that
+     * happens to hold a file of that name, so the stamped `docId` decides.
+     *
+     * @param {string} [ownName] this document's filename, when opened from disk
+     * @param {string} [docId] this document's identity
+     */
+    async restoreFile(ownName, docId) {
+      await this.restoreFolder();
+      if (ownName && this.dirHandle) {
+        const adopted = await this.adoptInFolder(ownName, { docId, create: false });
+        if (adopted.state !== SaveState.unset) return adopted;
+      }
+      const stored = await get(KEYS.file) ?? null;
+      if (!stored || ownName && stored.name !== ownName) {
+        this.fileHandle = null;
+        this.set(SaveState.unset);
+        return this.status();
+      }
+      this.fileHandle = stored;
+      const permission = await this.fileHandle.queryPermission({ mode: "readwrite" });
+      if (permission !== "granted") {
+        this.set(SaveState.needsPermission);
+        return this.status();
+      }
+      if (docId && await readDocId(this.fileHandle) !== docId) {
+        this.fileHandle = null;
+        this.set(SaveState.unset);
+        return this.status();
+      }
+      this.set(SaveState.ready);
+      return this.status();
+    }
+    /**
+     * Picks where to save. Must be called from a user gesture.
+     * @param {{rememberFolder: boolean}} options
+     */
+    async chooseTarget({ rememberFolder }) {
+      if (rememberFolder) {
+        this.dirHandle = await window.showDirectoryPicker({ mode: "readwrite", id: "interleaf" });
+        await put(KEYS.dir, this.dirHandle);
+        const wanted = this.suggestName();
+        const existing = await this.getFileHandle(wanted);
+        this.fileHandle = await this.dirHandle.getFileHandle(
+          existing ? await this.freeName(wanted) : wanted,
+          { create: true }
+        );
+      } else {
+        this.dirHandle = null;
+        await remove(KEYS.dir);
+        this.fileHandle = await window.showSaveFilePicker({
+          suggestedName: this.suggestName(),
+          types: [{ description: "HTML", accept: { "text/html": [".html"] } }]
+        });
+      }
+      await put(KEYS.file, this.fileHandle);
+      this.set(SaveState.ready);
+      return this.status();
+    }
+    /** Forgets the remembered location. The file on disk is untouched. */
+    async forget() {
+      this.cancelScheduled();
+      this.fileHandle = null;
+      this.dirHandle = null;
+      this.pending = null;
+      await remove(KEYS.file);
+      await remove(KEYS.dir);
+      this.set(SaveState.unset);
+      return this.status();
+    }
+    /**
+     * Regains write permission for a restored handle. Needs a user gesture.
+     * When only a folder is remembered, the permission is asked for the folder and
+     * the file held by `adoptInFolder` is then created inside it.
+     */
+    async grant() {
+      if (!this.fileHandle && this.dirHandle && this.pending) {
+        const permission2 = await this.dirHandle.requestPermission({ mode: "readwrite" });
+        if (permission2 !== "granted") {
+          this.set(SaveState.needsPermission);
+          return this.status();
+        }
+        const { name, docId, create } = this.pending;
+        return this.adoptInFolder(name, { docId, create });
+      }
+      if (!this.fileHandle) return this.status();
+      const permission = await this.fileHandle.requestPermission({ mode: "readwrite" });
+      this.set(permission === "granted" ? SaveState.ready : SaveState.needsPermission);
+      return this.status();
+    }
+    /** True when a write can proceed with no interaction at all. */
+    async canWriteSilently() {
+      if (!this.fileHandle) return false;
+      return await this.fileHandle.queryPermission({ mode: "readwrite" }) === "granted";
+    }
+    /** Writes now. Resolves to the status; never throws. */
+    async saveNow() {
+      if (!this.fileHandle) {
+        this.set(SaveState.unset);
+        return this.status();
+      }
+      if (this.writing) {
+        this.pendingWhileWriting = true;
+        return this.status();
+      }
+      this.writing = true;
+      this.set(SaveState.saving);
+      try {
+        if (!await this.canWriteSilently()) {
+          this.set(SaveState.needsPermission);
+          return this.status();
+        }
+        const html = await this.build();
+        const writable = await this.fileHandle.createWritable();
+        await writable.write(html);
+        await writable.close();
+        this.lastSavedAt = (/* @__PURE__ */ new Date()).toISOString();
+        this.set(SaveState.saved);
+      } catch (e) {
+        this.set(SaveState.failed, String(e?.message ?? e));
+      } finally {
+        this.writing = false;
+        if (this.pendingWhileWriting) {
+          this.pendingWhileWriting = false;
+          this.schedule(0);
+        }
+      }
+      return this.status();
+    }
+    /** Queues a write once typing stops. */
+    schedule(delay = AUTOSAVE_DELAY) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.saveNow(), delay);
+    }
+    cancelScheduled() {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  };
+  async function readDocId(handle) {
+    try {
+      const file = await handle.getFile();
+      const tail = await file.slice(Math.max(0, file.size - 262144)).text();
+      const match = /"docId"\s*:\s*"([^"]+)"/.exec(tail);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extension/notes/save-ui.js
+  var PANEL_STYLE = `
+#interleaf-panel {
+  position: fixed; inset: 0; z-index: 2147483646;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 22, 26, .45);
+  font: 14px/1.6 -apple-system, system-ui, sans-serif;
+}
+#interleaf-panel .box {
+  width: 420px; max-width: calc(100vw - 32px);
+  background: #fff; color: #23262b;
+  border-radius: 12px; padding: 20px 22px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.28);
+}
+#interleaf-panel h2 { margin: 0 0 4px; font-size: 15px; }
+#interleaf-panel p.sub { margin: 0 0 16px; color: #6b727c; font-size: 13px; }
+#interleaf-panel label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+#interleaf-panel label input { margin: 3px 0 0; }
+#interleaf-panel label .hint { display: block; color: #6b727c; font-size: 12px; margin-top: 2px; }
+#interleaf-panel .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+#interleaf-panel button {
+  font: inherit; padding: 6px 14px; border-radius: 7px; cursor: pointer;
+  border: 1px solid #c9cdd4; background: #fff; color: inherit;
+}
+#interleaf-panel button.primary { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
+#interleaf-panel button:hover { filter: brightness(.97); }
+#interleaf-panel .error { margin: 12px 0 0; color: #c0392b; font-size: 12px; }
+`;
+  function askWhereToSave(pick) {
+    return new Promise((resolve) => {
+      if (!document.getElementById("interleaf-panel-style")) {
+        const style = document.createElement("style");
+        style.id = "interleaf-panel-style";
+        style.textContent = PANEL_STYLE;
+        document.head.appendChild(style);
+      }
+      const panel = document.createElement("div");
+      panel.id = "interleaf-panel";
+      panel.innerHTML = `
+      <div class="box" role="dialog" aria-modal="true">
+        <h2>\uC800\uC7A5 \uC704\uCE58\uB97C \uC815\uD574\uC8FC\uC138\uC694</h2>
+        <p class="sub">\uC774 \uB2E4\uC74C\uBD80\uD130\uB294 \uC801\uB294 \uB300\uB85C \uC800\uC7A5\uB429\uB2C8\uB2E4.</p>
+        <label>
+          <input type="checkbox" id="interleaf-remember" checked>
+          <span>
+            \uB2E4\uC74C\uC5D0\uB3C4 \uC5EC\uAE30\uC5D0 \uC800\uC7A5
+            <span class="hint">\uB044\uBA74 \uC774 \uD30C\uC77C\uB9CC \uC800\uC7A5\uD558\uACE0, \uB2E4\uC74C\uC5D0 \uB2E4\uC2DC \uBB3B\uC2B5\uB2C8\uB2E4.</span>
+          </span>
+        </label>
+        <div class="row">
+          <button type="button" id="interleaf-cancel">\uCDE8\uC18C</button>
+          <button type="button" class="primary" id="interleaf-pick">\uC704\uCE58 \uACE0\uB974\uAE30</button>
+        </div>
+        <p class="error" id="interleaf-panel-error" hidden></p>
+      </div>
+    `;
+      document.body.appendChild(panel);
+      const dismiss = (value) => {
+        panel.remove();
+        resolve(value);
+      };
+      document.getElementById("interleaf-cancel").onclick = () => dismiss(null);
+      panel.addEventListener("click", (e) => {
+        if (e.target === panel) dismiss(null);
+      });
+      const button = document.getElementById("interleaf-pick");
+      button.onclick = () => {
+        const rememberFolder = document.getElementById("interleaf-remember").checked;
+        button.disabled = true;
+        pick({ rememberFolder }).then(dismiss, (e) => {
+          button.disabled = false;
+          if (e?.name === "AbortError") return;
+          const error = document.getElementById("interleaf-panel-error");
+          error.hidden = false;
+          error.textContent = String(e?.message ?? e);
+        });
+      };
+      button.focus();
+    });
+  }
+  function describeStatus(status) {
+    switch (status.state) {
+      case "unset":
+        return "\uC800\uC7A5 \uC704\uCE58 \uC5C6\uC74C";
+      case "needs-permission":
+        return "\uC800\uC7A5 \uAD8C\uD55C \uD544\uC694";
+      case "saving":
+        return "\uC800\uC7A5 \uC911\u2026";
+      case "saved":
+        return "\uC800\uC7A5\uB428 " + new Date(status.lastSavedAt).toLocaleTimeString();
+      case "failed":
+        return "\uC800\uC7A5 \uC2E4\uD328: " + (status.error ?? "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958");
+      case "ready":
+      default:
+        return status.fileName ? `${status.fileName} \uC5D0 \uC800\uC7A5` : "\uC800\uC7A5 \uC900\uBE44\uB428";
+    }
+  }
+  function describeTarget(status) {
+    if (!status.fileName) return "\uC704\uCE58 \uBBF8\uC9C0\uC815";
+    if (status.remembersFolder) return `${status.dirName}/${status.fileName}`;
+    return status.fileName;
+  }
+
   // src/viewer-entry.js
   var RUNTIME_ID2 = "interleaf-runtime";
   var RUNTIME_STYLE_ID2 = "interleaf-runtime-style";
-  function readData() {
-    const el = document.getElementById(DATA_ID);
-    if (!el) return { version: 1, source: {}, notes: [] };
-    try {
-      return JSON.parse(el.textContent);
-    } catch {
-      return { version: 1, source: {}, notes: [], parseError: true };
-    }
-  }
   var BAR_STYLE = `
 #interleaf-bar {
   position: fixed; inset: 0 0 auto 0; z-index: 2147483647;
@@ -565,17 +984,42 @@
 }
 #interleaf-bar button:hover { background: #39424f; }
 #interleaf-bar button[data-on] { background: #4a5162; }
+#interleaf-bar button.link {
+  border: 0; background: none; padding: 2px 4px; text-decoration: underline; color: #9aa3b2;
+}
+#interleaf-bar button.link:hover { color: #e8e8ea; background: none; }
 #interleaf-bar .note { color: #9aa3b2; }
+#interleaf-bar .warn { color: #ffb86b; }
+#interleaf-bar .bad { color: #ff8f7a; }
 `;
-  function currentDocument(layer, data) {
+  function readData() {
+    const el = document.getElementById(DATA_ID);
+    if (!el) return { version: 1, source: {}, notes: [] };
+    try {
+      return JSON.parse(el.textContent);
+    } catch {
+      return { version: 1, source: {}, notes: [], parseError: true };
+    }
+  }
+  function ownFileName() {
+    if (location.protocol !== "file:") return null;
+    const name = decodeURIComponent(location.pathname.split("/").pop() ?? "");
+    return name || null;
+  }
+  function suggestedName(data) {
+    const base = (data.source?.title || document.title || "page").replace(/[\/\\?%*:|"<>\x00-\x1f]/g, " ").replace(/\s+/g, " ").trim();
+    return `${(base || "page").slice(0, 80)}.html`;
+  }
+  function build(layer, data) {
     return serializeDocument({
       notes: layer.toJSON(),
       runtimeJs: document.getElementById(RUNTIME_ID2)?.textContent ?? "",
       runtimeCss: document.getElementById(RUNTIME_STYLE_ID2)?.textContent ?? "",
-      source: data.source ?? {}
+      source: data.source ?? {},
+      docId: data.docId
     });
   }
-  function download(html, name) {
+  function downloadCopy(html, name) {
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -584,7 +1028,16 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 3e4);
   }
-  function mountBar(layer, data, status) {
+  function boot() {
+    const data = readData();
+    const layer = new NoteLayer();
+    layer.mount();
+    const restoreStatus = layer.restore(data.notes ?? []);
+    const saver = new Saver({
+      build: () => build(layer, data),
+      suggestName: () => suggestedName(data),
+      onStatus: (status) => renderStatus(status)
+    });
     const style = document.createElement("style");
     style.id = "interleaf-bar-style";
     style.textContent = BAR_STYLE;
@@ -594,39 +1047,73 @@
     bar.innerHTML = `
     <strong>Interleaf</strong>
     <span class="note" id="interleaf-count"></span>
-    <span class="grow note" id="interleaf-source"></span>
+    <span class="note" id="interleaf-status"></span>
+    <span class="grow note" id="interleaf-target"></span>
+    <button class="link" id="interleaf-change" type="button" hidden>\uBC14\uAFB8\uAE30</button>
+    <button class="link" id="interleaf-forget" type="button" hidden>\uAE30\uC5B5 \uD574\uC81C</button>
     <button id="interleaf-toggle" type="button">\uB178\uD2B8 \uC228\uAE30\uAE30</button>
-    <button id="interleaf-save" type="button">\uC0AC\uBCF8 \uB0B4\uB824\uBC1B\uAE30</button>
+    <button id="interleaf-save" type="button">\uC774 \uD30C\uC77C\uC5D0 \uC800\uC7A5</button>
   `;
     document.body.appendChild(bar);
-    const count = document.getElementById("interleaf-count");
-    const render = (notes) => {
-      const orphans = status.orphaned.length;
-      count.textContent = `\uB178\uD2B8 ${notes.length}\uAC1C` + (orphans ? ` \xB7 \uC6D0\uBB38 \uBABB \uCC3E\uC74C ${orphans}\uAC1C` : "");
+    const el = {
+      count: document.getElementById("interleaf-count"),
+      status: document.getElementById("interleaf-status"),
+      target: document.getElementById("interleaf-target"),
+      change: document.getElementById("interleaf-change"),
+      forget: document.getElementById("interleaf-forget"),
+      save: document.getElementById("interleaf-save"),
+      toggle: document.getElementById("interleaf-toggle")
     };
-    layer.onChange = render;
-    render(layer.toJSON());
-    document.getElementById("interleaf-source").textContent = data.source?.url ?? location.href;
-    const toggle = document.getElementById("interleaf-toggle");
-    toggle.onclick = () => {
-      const hidden = !("on" in toggle.dataset);
-      if (hidden) toggle.dataset.on = "";
-      else delete toggle.dataset.on;
-      toggle.textContent = hidden ? "\uB178\uD2B8 \uBCF4\uC774\uAE30" : "\uB178\uD2B8 \uC228\uAE30\uAE30";
+    function renderCount(notes) {
+      const orphans = restoreStatus.orphaned.length;
+      el.count.textContent = `\uB178\uD2B8 ${notes.length}\uAC1C` + (orphans ? ` \xB7 \uC6D0\uBB38 \uBABB \uCC3E\uC74C ${orphans}\uAC1C` : "");
+    }
+    function renderStatus(status) {
+      el.status.textContent = describeStatus(status);
+      el.status.className = status.state === "failed" ? "bad" : status.state === "needs-permission" ? "warn" : "note";
+      el.target.textContent = status.fileName ? `\u2192 ${describeTarget(status)}` : "";
+      el.change.hidden = !status.fileName;
+      el.forget.hidden = !status.fileName;
+      el.save.textContent = status.state === "needs-permission" ? "\uC800\uC7A5 \uD5C8\uC6A9" : "\uC774 \uD30C\uC77C\uC5D0 \uC800\uC7A5";
+    }
+    layer.onChange = (notes) => {
+      renderCount(notes);
+      if (saver.fileHandle) saver.schedule();
+    };
+    renderCount(layer.toJSON());
+    el.toggle.onclick = () => {
+      const hidden = !("on" in el.toggle.dataset);
+      if (hidden) el.toggle.dataset.on = "";
+      else delete el.toggle.dataset.on;
+      el.toggle.textContent = hidden ? "\uB178\uD2B8 \uBCF4\uC774\uAE30" : "\uB178\uD2B8 \uC228\uAE30\uAE30";
       layer.setNotesHidden(hidden);
     };
-    document.getElementById("interleaf-save").onclick = () => {
-      const name = (data.source?.title || document.title || "page").replace(/[\/\\?%*:|"<>]/g, " ").slice(0, 80);
-      download(currentDocument(layer, data), `${name}.html`);
+    const pickTarget = () => askWhereToSave((choice) => saver.chooseTarget(choice).then(() => saver.saveNow()));
+    el.save.onclick = async () => {
+      if (saver.state === "needs-permission") {
+        const status = await saver.grant();
+        if (status.state === "ready") await saver.saveNow();
+        return;
+      }
+      if (!saver.fileHandle) {
+        const picked = await pickTarget();
+        if (!picked) {
+          downloadCopy(build(layer, data), suggestedName(data));
+        }
+        return;
+      }
+      await saver.saveNow();
     };
-  }
-  function boot() {
-    const data = readData();
-    const layer = new NoteLayer();
-    layer.mount();
-    const status = layer.restore(data.notes ?? []);
-    mountBar(layer, data, status);
-    window.__interleaf = { layer, data, status, currentDocument: () => currentDocument(layer, data) };
+    el.change.onclick = () => pickTarget();
+    el.forget.onclick = () => saver.forget();
+    saver.restoreFile(ownFileName(), data.docId);
+    window.__interleaf = {
+      layer,
+      data,
+      saver,
+      status: restoreStatus,
+      currentDocument: () => build(layer, data)
+    };
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

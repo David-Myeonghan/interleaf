@@ -7,6 +7,8 @@
 
 import { NoteLayer } from './notes/notes.js';
 import { serializeDocument } from './notes/serialize.js';
+import { Saver } from './notes/save.js';
+import { askWhereToSave, describeStatus, describeTarget } from './notes/save-ui.js';
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id');
@@ -57,7 +59,7 @@ const TOOLBAR_STYLE = `
 #interleaf-bar .note { color: #9aa3b2; }
 `;
 
-function mountToolbar(layer) {
+function mountToolbar(layer, saver) {
   const style = document.createElement('style');
   style.id = 'interleaf-toolbar-style';
   style.textContent = TOOLBAR_STYLE;
@@ -68,14 +70,14 @@ function mountToolbar(layer) {
   bar.innerHTML = `
     <strong>Interleaf</strong>
     <span class="note" id="interleaf-count">노트 0개</span>
-    <span class="grow note" id="interleaf-source"></span>
+    <span class="note" id="interleaf-status"></span>
+    <span class="grow note" id="interleaf-target"></span>
+    <button class="link" id="interleaf-change" type="button" hidden>바꾸기</button>
+    <button class="link" id="interleaf-forget" type="button" hidden>기억 해제</button>
     <button id="interleaf-toggle" type="button">노트 숨기기</button>
-    <button id="interleaf-download" type="button">HTML 내려받기</button>
+    <button id="interleaf-save" type="button">이 파일에 저장</button>
   `;
   document.body.appendChild(bar);
-
-  document.getElementById('interleaf-source').textContent = snapshot.url;
-  document.getElementById('interleaf-download').onclick = () => downloadDocument(layer);
 
   const toggle = document.getElementById('interleaf-toggle');
   toggle.onclick = () => {
@@ -85,6 +87,45 @@ function mountToolbar(layer) {
     toggle.textContent = hidden ? '노트 보이기' : '노트 숨기기';
     layer.setNotesHidden(hidden);
   };
+
+  const pickTarget = () => askWhereToSave((choice) =>
+    saver.chooseTarget(choice).then(() => saver.saveNow()));
+
+  const save = document.getElementById('interleaf-save');
+  save.onclick = async () => {
+    if (saver.state === 'needs-permission') {
+      const status = await saver.grant();
+      if (status.state === 'ready') await saver.saveNow();
+      return;
+    }
+    if (!saver.fileHandle) {
+      const picked = await pickTarget();
+      // Nowhere to write, but the notes still exist and must be rescuable.
+      if (!picked) await downloadCopy(layer);
+      return;
+    }
+    await saver.saveNow();
+  };
+
+  document.getElementById('interleaf-change').onclick = () => pickTarget();
+  document.getElementById('interleaf-forget').onclick = () => saver.forget();
+}
+
+function renderStatus(status) {
+  const statusEl = document.getElementById('interleaf-status');
+  const targetEl = document.getElementById('interleaf-target');
+  const save = document.getElementById('interleaf-save');
+  if (!statusEl) return;
+  statusEl.textContent = describeStatus(status);
+  statusEl.className = status.state === 'failed'
+    ? 'bad'
+    : status.state === 'needs-permission' ? 'warn' : 'note';
+  // Where saves go must be visible; a tool that quietly writes somewhere is
+  // worse than one that asks.
+  targetEl.textContent = status.fileName ? `→ ${describeTarget(status)}` : '';
+  document.getElementById('interleaf-change').hidden = !status.fileName;
+  document.getElementById('interleaf-forget').hidden = !status.fileName;
+  save.textContent = status.state === 'needs-permission' ? '저장 허용' : '이 파일에 저장';
 }
 
 function renderCount(notes) {
@@ -107,11 +148,12 @@ async function buildDocument(layer) {
     notes: layer.toJSON(),
     runtimeJs: js,
     runtimeCss: css,
+    docId: snapshot.docId,
     source: { url: snapshot.url, title: snapshot.title, capturedAt: snapshot.capturedAt },
   });
 }
 
-async function downloadDocument(layer) {
+async function downloadCopy(layer) {
   const html = await buildDocument(layer);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
@@ -133,13 +175,32 @@ async function boot() {
   mountSnapshot(snapshot.html);
   mountStylesheet('notes.css', 'interleaf-notes-style');
 
-  const layer = new NoteLayer({ onChange: renderCount });
+  const layer = new NoteLayer();
   layer.mount();
-  mountToolbar(layer);
+
+  const saver = new Saver({
+    build: () => buildDocument(layer),
+    suggestName: () => `${snapshot.name}.html`,
+    onStatus: renderStatus,
+  });
+
+  mountToolbar(layer, saver);
   renderCount([]);
 
+  // A remembered folder makes every capture after the first save itself with no
+  // dialog: same folder, a filename from this page, nothing to ask. The
+  // remembered *file* is not inherited - it belongs to the previous capture.
+  await saver.restoreFolder();
+  if (saver.dirHandle) await saver.adoptInFolder(`${snapshot.name}.html`, { docId: snapshot.docId });
+  renderStatus(saver.status());
+
+  layer.onChange = (notes) => {
+    renderCount(notes);
+    if (saver.fileHandle) saver.schedule();
+  };
+
   // Exposed for the verification harness, which drives selections over CDP.
-  window.__interleaf = { layer, snapshot, buildDocument: () => buildDocument(layer) };
+  window.__interleaf = { layer, saver, snapshot, buildDocument: () => buildDocument(layer) };
 }
 
 boot().catch((e) => fail(String(e?.message ?? e)));
