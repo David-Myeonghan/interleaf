@@ -57,6 +57,8 @@ test/         fixture site with external assets, for offline verification
 `npm run build` produces `extension/sf-bundle.js`. Load `extension/` through
 **Load unpacked** in `chrome://extensions` — branded Chrome dropped
 `--load-extension` in 137, so the verification harness runs on Chrome for Testing.
+`scripts/push.sh` pushes as the owning account: a different account left active
+on github.com wins over the remote URL and the push is refused.
 
 ## License
 
