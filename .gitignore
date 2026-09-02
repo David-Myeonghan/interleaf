@@ -8,3 +8,5 @@ probe/sf-bundle.js
 .dev-profile/
 test/out/
 dist/
+.zip-profile/
+.probe2-profile/
