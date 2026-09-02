@@ -1,5 +1,7 @@
 // Tiny CDP helper over Node's built-in WebSocket (Node 22+). No deps.
-const PORT = process.env.CDP_PORT || 9333;
+// 9444 is the port scripts/dev-chrome.sh opens, so a script run on its own
+// talks to that browser without being told.
+const PORT = process.env.CDP_PORT || 9444;
 const base = `http://127.0.0.1:${PORT}`;
 
 export async function targets() {

@@ -57,6 +57,14 @@ async function launch({ wipe }) {
 export async function ensureFresh() {
   const wanted = JSON.parse(fs.readFileSync(DISK, 'utf8')).builtAt;
 
+  // Start the browser if none is up, so a script can be run on a fresh
+  // checkout without knowing to launch one first.
+  try {
+    await cdp.version();
+  } catch {
+    await launch({ wipe: false });
+  }
+
   // Restart first, then wipe the profile. Only the wipe reliably replaces a
   // registered worker, but it also drops granted permissions, so it is second.
   for (const step of ['ask', 'restart', 'wipe']) {

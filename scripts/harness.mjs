@@ -20,7 +20,15 @@ export function step(message) {
 }
 
 export async function closeTabs(predicate) {
-  for (const target of (await cdp.targets()).filter((t) => t.type === 'page' && predicate(t.url))) {
+  // Tolerates there being no browser yet: callers use this to tidy up before a
+  // run, and on a fresh checkout there is nothing to tidy.
+  let open;
+  try {
+    open = await cdp.targets();
+  } catch {
+    return;
+  }
+  for (const target of open.filter((t) => t.type === 'page' && predicate(t.url))) {
     await fetch(`http://127.0.0.1:${PORT}/json/close/${target.id}`).catch(() => {});
   }
 }

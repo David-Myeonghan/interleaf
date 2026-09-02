@@ -27,8 +27,9 @@ async function shoot(page, name) {
   console.log('wrote', path.basename(file));
 }
 
-await closeTabs(() => true);
+// openExtension starts the browser when none is running, so it comes first.
 const { extId, popup } = await openExtension();
+await closeTabs((url) => !url.startsWith('chrome-extension://'));
 const subject = await openPage(SUBJECT, 'subject page');
 
 // Collapsed on the live page, before capture: a capture is taken with the
