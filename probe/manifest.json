@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "SnapNote M0 Probe",
+  "version": "0.0.1",
+  "description": "M0 uncertainty probes: FSA handle persistence, background writes, file:// injection, handshake, in-extension viewer.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "file:///*"
+      ],
+      "js": [
+        "file-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "probe.html",
+        "sf-bundle.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "exportedAt": "2026-09-02T07:48:29.250Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  "extensionId": "ecdiiahgdjmkjlpkepognkijfhbihmhb",
+  "results": {
+    "fixture": {
+      "_reportedFrom": "file:///Users/david/person/snapnote/probe/fixtures/local-page.html",
+      "p0_href": "file:///Users/david/person/snapnote/probe/fixtures/local-page.html",
+      "p0_result": "SecurityError: Failed to execute 'showSaveFilePicker' on 'Window': Must be handling a user gesture to show a file picker.",
+      "p0_savePickerAvailable": true,
+      "p2_contentScriptInjected": true,
+      "p2_markerAt": "2026-09-02T06:29:45.181Z",
+      "p3_handshake": "ok",
+      "p3_swReply": {
+        "extensionPresent": true,
+        "ok": true,
+        "url": "file:///Users/david/person/snapnote/probe/fixtures/local-page.html"
+      },
+      "p6": {
+        "p6_firstWrite": "ok",
+        "p6_idbOnFileOrigin": "ok (handle stored)",
+        "p6_name": "p6-scratch.html",
+        "p6_pickerWithGesture": "ok",
+        "p6_reuse": "ok",
+        "p6_reusePermission": "granted",
+        "p6_timer": "ok (autosave possible without extension)"
+      }
+    },
+    "p1": {
+      "kind": "file",
+      "name": "scratch.html",
+      "ok": true,
+      "storedInIDB": true
+    },
+    "p1a": {
+      "name": "scratch.html",
+      "ok": true,
+      "permissionBeforeWrite": "granted"
+    },
+    "p1b": {
+      "ok": true,
+      "permission": "granted",
+      "stage": "write"
+    },
+    "p1c": {
+      "ok": true,
+      "results": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "permission": "granted"
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "permission": "granted"
+        },
+        {
+          "attempt": 3,
+          "ok": true,
+          "permission": "granted"
+        }
+      ]
+    },
+    "p1r": {
+      "clicksNeeded": 1,
+      "handleSurvived": true,
+      "ok": true,
+      "permissionAfterRequest": "granted",
+      "permissionOnQuery": "prompt"
+    },
+    "p4": {
+      "bytes": 222450,
+      "elapsedMs": 382,
+      "filename": "Unnamed page",
+      "ok": true,
+      "pageMs": 349,
+      "title": "어느 에러가 실제 사용자 장애인가 — dhub",
+      "url": "https://ai-krc.dev-dentbird.com/dhub/dashboard/docs/%EC%96%B4%EB%8A%90-%EC%97%90%EB%9F%AC%EA%B0%80-%EC%8B%A4%EC%A0%9C-%EC%82%AC%EC%9A%A9%EC%9E%90-%EC%9E%A5%EC%95%A0%EC%9D%B8%EA%B0%80/"
+    },
+    "p5": {
+      "bytes": 38154,
+      "name": "Created-Action required 실측 진단 · D1-5207.html",
+      "note": "iframe srcdoc rendered below; check whether its inline script executed",
+      "ok": true,
+      "readwritePermissionWithoutPrompt": "prompt"
+    },
+    "p7": {
+      "dirName": "m0",
+      "ok": true,
+      "permission": "granted",
+      "step": "timer write",
+      "storedInIDB": true,
+      "wrote": "p7-timer.html"
+    },
+    "p7r": {
+      "clicksNeeded": 1,
+      "handleSurvived": true,
+      "ok": true,
+      "permissionAfterRequest": "granted",
+      "permissionOnQuery": "prompt",
+      "wrote": "p7-after-restart.html"
+    }
+  }
+}

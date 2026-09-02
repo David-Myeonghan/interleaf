@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SnapNote M0 Probe</title>
+<style>
+  body { font: 14px/1.6 -apple-system, system-ui, sans-serif; margin: 24px; max-width: 900px; }
+  h1 { font-size: 18px; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  button { font: inherit; padding: 6px 12px; margin-right: 8px; cursor: pointer; }
+  pre { background: #f6f6f6; padding: 10px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }
+  .ok { color: #0a7d28; font-weight: 600; }
+  .bad { color: #c00; font-weight: 600; }
+  .todo { color: #888; }
+  small { color: #666; }
+</style>
+
+<h1>SnapNote M0 Probe</h1>
+<p><small>Click the buttons in order. Results are collected in <code>window.__PROBE</code>.</small></p>
+
+<section>
+  <h2>P1 — Pick a file, store its handle (extension page)</h2>
+  <button id="p1">Pick file &amp; store handle</button>
+  <small>Save the picker to a scratch path, e.g. <code>~/person/snapnote/probe/scratch.html</code></small>
+  <pre id="out-p1" class="todo">not run</pre>
+</section>
+
+<section>
+  <h2>P1a — Reuse stored handle from this page (same session)</h2>
+  <button id="p1a">Write via stored handle (page context)</button>
+  <pre id="out-p1a" class="todo">not run</pre>
+</section>
+
+<section>
+  <h2>P1b — Write from the service worker (no UI, no gesture) &mdash; the autosave question</h2>
+  <button id="p1b">Ask service worker to write</button>
+  <small>If this fails, autosave cannot run in the background.</small>
+  <pre id="out-p1b" class="todo">not run</pre>
+</section>
+
+<section>
+  <h2>P1c — Repeat writes from page with no further gesture</h2>
+  <button id="p1c">Write 3x with no gesture (timers)</button>
+  <small>Simulates debounced autosave while the page stays open.</small>
+  <pre id="out-p1c" class="todo">not run</pre>
+</section>
+
+<section>
+  <h2>P5 — Open a local file inside the extension page (bypasses file:// entirely)</h2>
+  <button id="p5">Open file &amp; render it here</button>
+  <small>If this works, the with-extension viewer never needs <code>file://</code>.</small>
+  <pre id="out-p5" class="todo">not run</pre>
+</section>
+
+<section>
+  <h2>P4 &mdash; capture a page with single-file-core</h2>
+  <button id="p4-list">List open tabs</button>
+  <div id="p4-tabs"></div>
+  <pre id="out-p4" class="todo">not run</pre>
+</section>
+
+<section style="border-color:#0b5cad">
+  <h2>P7 &mdash; remember a FOLDER, then write into it with no dialog</h2>
+  <button id="p7-pick">1. Pick folder (once)</button>
+  <button id="p7-write">2. Create a file in it (no dialog)</button>
+  <button id="p7-write2">3. Create another (no dialog)</button>
+  <button id="p7-timer">4. Create from timer (no gesture)</button>
+  <small>If these pass, the second capture onward never asks where to save.</small>
+  <pre id="out-p7" class="todo">not run</pre>
+</section>
+
+<section style="border-color:#0b5cad">
+  <h2>P1r / P7r &mdash; run these AFTER quitting and reopening Chrome</h2>
+  <button id="p1r">Reuse the FILE handle from a previous session</button>
+  <button id="p7r">Reuse the FOLDER handle from a previous session</button>
+  <pre id="out-p1r" class="todo">not run</pre>
+  <pre id="out-p7r" class="todo">not run</pre>
+</section>
+
+<section style="border-color:#0a7d28">
+  <h2>Export &mdash; run this last</h2>
+  <button id="export">Export all results to Downloads</button>
+  <small>Writes <code>Downloads/snapnote-m0-results.json</code>.</small>
+  <pre id="out-export" class="todo">not run</pre>
+</section>
+
+<script type="module" src="probe.js"></script>

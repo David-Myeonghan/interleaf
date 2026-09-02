@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fake snapshot (P2/P3 fixture)</title>
+<style>
+  body { font: 15px/1.8 -apple-system, system-ui, sans-serif; margin: 40px auto; max-width: 640px; }
+  #status { font: 13px ui-monospace, monospace; background: #f6f6f6; padding: 10px; border-radius: 6px; white-space: pre-wrap; }
+</style>
+
+<h1>Fake snapshot page</h1>
+<p>This file stands in for a saved snapshot. It is opened over <code>file://</code>.</p>
+<p>Highlight target: <span id="target">the quick brown fox jumps over the lazy dog</span></p>
+
+<h2>P6 &mdash; can a file:// page save by itself, with a gesture?</h2>
+<p>
+  <button id="p6-save">Save picker (with gesture)</button>
+  <button id="p6-idb">Store handle in this page's IndexedDB</button>
+  <button id="p6-reuse">Reuse handle &amp; write again</button>
+  <button id="p6-timer">Write from timer (no gesture)</button>
+</p>
+<pre id="p6-out">not run</pre>
+
+<h2>Probe results</h2>
+<div id="status">running…</div>
+
+<script type="application/json" id="snapnote-data">
+{ "version": 1, "notes": [] }
+</script>
+
+<script>
+// P6: the earlier failure was "Must be handling a user gesture", not an origin
+// rejection, so file:// may be able to write to its own file after a click.
+(() => {
+  const out = {};
+  const el = () => document.getElementById('p6-out');
+  const set = () => { el().textContent = JSON.stringify(out, null, 2); window.__PROBE_P6 = out;
+    window.postMessage({ __snapnote: 'report', payload: { ...(window.__PROBE_FILE || {}), p6: out } }, '*'); };
+  let handle = null;
+
+  const write = async (h, tag) => {
+    const w = await h.createWritable();
+    await w.write('<!-- ' + tag + ' ' + new Date().toISOString() + ' -->');
+    await w.close();
+  };
+
+  document.getElementById('p6-save').onclick = async () => {
+    try {
+      handle = await window.showSaveFilePicker({ suggestedName: 'p6-scratch.html' });
+      await write(handle, 'p6 first write');
+      out.p6_pickerWithGesture = 'ok';
+      out.p6_firstWrite = 'ok';
+      out.p6_name = handle.name;
+    } catch (e) {
+      out.p6_pickerWithGesture = e.name + ': ' + e.message;
+    }
+    set();
+  };
+
+  document.getElementById('p6-idb').onclick = async () => {
+    try {
+      const db = await new Promise((res, rej) => {
+        const r = indexedDB.open('p6', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('h');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+      await new Promise((res, rej) => {
+        const t = db.transaction('h', 'readwrite').objectStore('h').put(handle, 'f');
+        t.onsuccess = () => res(); t.onerror = () => rej(t.error);
+      });
+      out.p6_idbOnFileOrigin = 'ok (handle stored)';
+    } catch (e) {
+      out.p6_idbOnFileOrigin = e.name + ': ' + e.message;
+    }
+    set();
+  };
+
+  document.getElementById('p6-reuse').onclick = async () => {
+    try {
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      await write(handle, 'p6 reuse write');
+      out.p6_reuse = 'ok';
+      out.p6_reusePermission = perm;
+    } catch (e) {
+      out.p6_reuse = e.name + ': ' + e.message;
+    }
+    set();
+  };
+
+  document.getElementById('p6-timer').onclick = async () => {
+    out.p6_timer = 'waiting 1.5s…'; set();
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      await write(handle, 'p6 timer write');
+      out.p6_timer = 'ok (autosave possible without extension)';
+    } catch (e) {
+      out.p6_timer = e.name + ': ' + e.message;
+    }
+    set();
+  };
+})();
+
+(async () => {
+  const out = {};
+  const set = () => { document.getElementById('status').textContent = JSON.stringify(out, null, 2); window.__PROBE_FILE = out; };
+
+  // P2: did the content script attach?
+  await new Promise((r) => setTimeout(r, 400));
+  const marker = document.getElementById('__snapnote_bridge_marker');
+  out.p2_contentScriptInjected = !!marker;
+  out.p2_markerAt = marker?.dataset.at ?? null;
+  set();
+
+  // P3: handshake via window.postMessage
+  const nonce = Math.random().toString(36).slice(2);
+  out.p3_handshake = 'waiting';
+  set();
+  const pong = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), 1500);
+    window.addEventListener('message', function h(e) {
+      if (e.source !== window || e.data?.__snapnote !== 'pong' || e.data.nonce !== nonce) return;
+      clearTimeout(t); window.removeEventListener('message', h); resolve(e.data);
+    });
+    window.postMessage({ __snapnote: 'ping', nonce }, '*');
+  });
+  out.p3_handshake = pong ? 'ok' : 'no reply (extension absent or blocked)';
+  out.p3_swReply = pong?.swReply ?? null;
+  set();
+
+  // P0: confirm the documented file:// restriction on the save picker.
+  out.p0_savePickerAvailable = typeof window.showSaveFilePicker === 'function';
+  if (out.p0_savePickerAvailable) {
+    // Called without a gesture on purpose: we want the error name recorded.
+    try { await window.showSaveFilePicker({ suggestedName: 'x.html' }); out.p0_result = 'unexpectedly resolved'; }
+    catch (e) { out.p0_result = e.name + ': ' + e.message; }
+  } else {
+    out.p0_result = 'API not exposed on file://';
+  }
+  out.p0_href = location.href;
+  set();
+
+  // Hand the findings to the extension so one export collects everything.
+  window.postMessage({ __snapnote: 'report', payload: out }, '*');
+})();
+</script>

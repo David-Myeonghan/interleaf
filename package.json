@@ -1,0 +1,20 @@
+{
+  "name": "snapnote",
+  "version": "0.1.0",
+  "description": "",
+  "scripts": {
+    "build": "esbuild src/capture-entry.js --bundle --format=iife --platform=browser --minify --outfile=extension/sf-bundle.js",
+    "watch": "npm run build -- --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "single-file-core": "^1.5.119"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "private": true
+}
