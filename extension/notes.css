@@ -150,3 +150,13 @@ html[data-interleaf="notes-hidden"] #interleaf-leader { display: none; }
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
 }
+
+/* A note whose text could not be found again. Kept and shown, never dropped. */
+.il-card[data-orphaned] {
+  border-color: #c86a4a;
+  border-style: dashed;
+}
+.il-card[data-orphaned] .il-card__quote {
+  color: #b4553a;
+  font-style: italic;
+}

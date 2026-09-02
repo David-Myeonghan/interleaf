@@ -6,6 +6,7 @@
 // never execute here. That is wanted: the capture is taken with blockScripts.
 
 import { NoteLayer } from './notes/notes.js';
+import { serializeDocument } from './notes/serialize.js';
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id');
@@ -74,7 +75,7 @@ function mountToolbar(layer) {
   document.body.appendChild(bar);
 
   document.getElementById('interleaf-source').textContent = snapshot.url;
-  document.getElementById('interleaf-download').onclick = downloadSnapshot;
+  document.getElementById('interleaf-download').onclick = () => downloadDocument(layer);
 
   const toggle = document.getElementById('interleaf-toggle');
   toggle.onclick = () => {
@@ -91,8 +92,28 @@ function renderCount(notes) {
   if (el) el.textContent = `노트 ${notes.length}개`;
 }
 
-async function downloadSnapshot() {
-  const blob = new Blob([snapshot.html], { type: 'text/html' });
+/** The viewer and stylesheet are inlined so the saved file needs no extension. */
+async function runtimeSources() {
+  const [js, css] = await Promise.all([
+    fetch(chrome.runtime.getURL('viewer-runtime.js')).then((r) => r.text()),
+    fetch(chrome.runtime.getURL('notes.css')).then((r) => r.text()),
+  ]);
+  return { js, css };
+}
+
+async function buildDocument(layer) {
+  const { js, css } = await runtimeSources();
+  return serializeDocument({
+    notes: layer.toJSON(),
+    runtimeJs: js,
+    runtimeCss: css,
+    source: { url: snapshot.url, title: snapshot.title, capturedAt: snapshot.capturedAt },
+  });
+}
+
+async function downloadDocument(layer) {
+  const html = await buildDocument(layer);
+  const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   try {
     await chrome.downloads.download({ url, filename: `${snapshot.name}.html`, saveAs: true });
@@ -118,7 +139,7 @@ async function boot() {
   renderCount([]);
 
   // Exposed for the verification harness, which drives selections over CDP.
-  window.__interleaf = { layer, snapshot };
+  window.__interleaf = { layer, snapshot, buildDocument: () => buildDocument(layer) };
 }
 
 boot().catch((e) => fail(String(e?.message ?? e)));

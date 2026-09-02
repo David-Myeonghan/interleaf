@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "description": "Save a web page as one self-contained HTML file and write notes in its margin.",
   "scripts": {
-    "build": "esbuild src/capture-entry.js --bundle --format=iife --platform=browser --minify --outfile=extension/sf-bundle.js",
-    "watch": "npm run build -- --watch"
+    "build": "npm run build:capture && npm run build:viewer",
+    "build:capture": "esbuild src/capture-entry.js --bundle --format=iife --platform=browser --minify --outfile=extension/sf-bundle.js",
+    "build:viewer": "esbuild src/viewer-entry.js --bundle --format=iife --platform=browser --outfile=extension/viewer-runtime.js",
+    "watch": "esbuild src/viewer-entry.js --bundle --format=iife --platform=browser --outfile=extension/viewer-runtime.js --watch"
   },
   "keywords": [],
   "author": "",

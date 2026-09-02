@@ -23,7 +23,8 @@
     {
       "resources": [
         "sf-bundle.js",
-        "notes.css"
+        "notes.css",
+        "viewer-runtime.js"
       ],
       "matches": [
         "<all_urls>"

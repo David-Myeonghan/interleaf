@@ -4,6 +4,7 @@
 import * as hl from './highlight.js';
 import { place, drawLeader } from './layout.js';
 import { applyGutter } from './gutter.js';
+import { fromRange, toRange } from './anchor.js';
 
 const QUOTE_CLAMP = 140;
 
@@ -52,27 +53,77 @@ export class NoteLayer {
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
 
     const range = selection.getRangeAt(0);
-    const text = range.toString().trim();
-    if (!text) return;
+    if (!range.toString().trim()) return;
 
     selection.removeAllRanges();
-    this.create(range, text);
+    this.create(range);
   }
 
-  create(range, quote) {
+  create(range) {
+    // The anchor is taken before painting: marks split text nodes, and the
+    // offsets written to the file must describe the text a fresh load walks.
+    const anchor = fromRange(range);
+    if (!anchor) return null;
+
     const id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const marks = hl.paint(range, id);
     if (!marks.length) return null;
 
-    const note = { id, quote, body: '', collapsed: false, createdAt: new Date().toISOString() };
-    const card = this.buildCard(note);
-    this.cardsHost.appendChild(card);
-    this.notes.set(id, { note, card });
+    const note = {
+      id,
+      anchor,
+      body: '',
+      collapsed: false,
+      createdAt: new Date().toISOString(),
+    };
+    this.addCard(note);
 
     this.layout();
     this.focus(id);
     this.emit();
     return id;
+  }
+
+  /**
+   * Puts stored notes back on the page. Anchors that no longer resolve are kept
+   * rather than dropped: the note is the user's, and silently discarding one
+   * because the text moved would lose work no one asked to lose.
+   *
+   * @returns {{restored: number, orphaned: string[], byQuote: string[]}}
+   */
+  restore(notes) {
+    const orphaned = [];
+    const byQuote = [];
+    let restored = 0;
+
+    for (const note of notes) {
+      const found = toRange(note.anchor);
+      if (!found) {
+        this.addCard({ ...note, orphaned: true });
+        orphaned.push(note.id);
+        continue;
+      }
+      const marks = hl.paint(found.range, note.id);
+      if (!marks.length) {
+        this.addCard({ ...note, orphaned: true });
+        orphaned.push(note.id);
+        continue;
+      }
+      this.addCard({ ...note, orphaned: false });
+      if (found.how === 'quote') byQuote.push(note.id);
+      restored++;
+    }
+
+    this.layout();
+    this.emit();
+    return { restored, orphaned, byQuote };
+  }
+
+  addCard(note) {
+    const card = this.buildCard(note);
+    this.cardsHost.appendChild(card);
+    this.notes.set(note.id, { note, card });
+    return card;
   }
 
   remove(id) {
@@ -119,10 +170,13 @@ export class NoteLayer {
 
   layout() {
     this.gutter = applyGutter(this.cardsHost);
-    const cards = [...this.notes.entries()].map(([id, { card }]) => ({
+    const cards = [...this.notes.entries()].map(([id, { note, card }]) => ({
       id,
       el: card,
-      anchorTop: hl.topOf(id),
+      // An orphan has no mark to sit beside. It stacks at the top of the column
+      // rather than being hidden: the note is the user's work, and a note you
+      // cannot see is a note you have lost.
+      anchorTop: hl.topOf(id) ?? (note.orphaned ? 0 : null),
     }));
     place(cards);
     this.drawActiveLeader();
@@ -137,7 +191,10 @@ export class NoteLayer {
   }
 
   toJSON() {
-    return [...this.notes.values()].map(({ note }) => ({ ...note }));
+    return [...this.notes.values()].map(({ note }) => {
+      const { orphaned, ...rest } = note;
+      return rest;
+    });
   }
 
   emit() {
@@ -167,11 +224,13 @@ export class NoteLayer {
     card.dataset.noteId = note.id;
     if (note.collapsed) card.dataset.collapsed = '';
 
+    if (note.orphaned) card.dataset.orphaned = '';
+
+    const exact = note.anchor?.quote?.exact ?? '';
     const quote = document.createElement('p');
     quote.className = 'il-card__quote';
-    quote.textContent = note.quote.length > QUOTE_CLAMP
-      ? note.quote.slice(0, QUOTE_CLAMP) + '…'
-      : note.quote;
+    quote.textContent = (exact.length > QUOTE_CLAMP ? exact.slice(0, QUOTE_CLAMP) + '…' : exact)
+      || '(원문을 찾지 못했습니다)';
 
     const body = document.createElement('textarea');
     body.className = 'il-card__body';
