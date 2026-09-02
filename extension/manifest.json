@@ -24,7 +24,9 @@
       "resources": [
         "sf-bundle.js",
         "notes.css",
-        "viewer-runtime.js"
+        "viewer-runtime.js",
+        "build-stamp.json",
+        "build-stamp.js"
       ],
       "matches": [
         "<all_urls>"

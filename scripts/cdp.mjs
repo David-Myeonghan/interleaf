@@ -12,53 +12,102 @@ export async function version() {
   return r.json();
 }
 
+// Every request carries a deadline. Without one a call whose reply never comes
+// (an unrendered target answers nothing) leaves a promise pending forever, and
+// because waitFor awaits its probe, the timeout it was given never gets a
+// chance to fire. Runs hung with no error and no last line.
+const REQUEST_TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS ?? 10000);
+
+/**
+ * Opens a tab and actually navigates it.
+ *
+ * `/json/new` registers a target carrying the url but leaves the document at
+ * about:blank in this Chrome build, so the tab is created through
+ * Target.createTarget over the browser endpoint instead.
+ */
 export async function newTab(url) {
-  const r = await fetch(`${base}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
-  if (!r.ok) throw new Error(`newTab ${r.status} ${await r.text()}`);
-  return r.json();
+  const { webSocketDebuggerUrl } = await version();
+  const browser = connect(webSocketDebuggerUrl);
+  try {
+    const { targetId } = await browser.send('Target.createTarget', { url });
+    return { id: targetId, url };
+  } finally {
+    browser.close();
+  }
 }
 
-export function connect(wsUrl) {
+export function connect(wsUrl, { timeout = REQUEST_TIMEOUT_MS } = {}) {
   const ws = new WebSocket(wsUrl);
   let id = 0;
   const pending = new Map();
-  const ready = new Promise((res, rej) => {
-    ws.addEventListener('open', () => res());
-    ws.addEventListener('error', (e) => rej(new Error('ws error ' + e.message)));
+
+  const ready = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('cdp: websocket did not open')), timeout);
+    ws.addEventListener('open', () => { clearTimeout(timer); resolve(); });
+    ws.addEventListener('error', (e) => { clearTimeout(timer); reject(new Error('cdp: websocket error ' + (e.message ?? ''))); });
   });
-  ws.addEventListener('message', (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.id && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
-    }
+
+  const failAll = (reason) => {
+    for (const [, entry] of pending) entry.reject(new Error(reason));
+    pending.clear();
+  };
+  ws.addEventListener('close', () => failAll('cdp: socket closed'));
+
+  ws.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (!message.id || !pending.has(message.id)) return;
+    const entry = pending.get(message.id);
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    if (message.error) entry.reject(new Error(JSON.stringify(message.error)));
+    else entry.resolve(message.result);
   });
+
   return {
     ready,
     send(method, params = {}) {
       return ready.then(() => new Promise((resolve, reject) => {
-        const mid = ++id;
-        pending.set(mid, { resolve, reject });
-        ws.send(JSON.stringify({ id: mid, method, params }));
+        const requestId = ++id;
+        const timer = setTimeout(() => {
+          pending.delete(requestId);
+          reject(new Error(`cdp: ${method} timed out after ${timeout}ms`));
+        }, timeout);
+        pending.set(requestId, { resolve, reject, timer });
+        ws.send(JSON.stringify({ id: requestId, method, params }));
       }));
     },
     async eval(expression) {
-      const r = await this.send('Runtime.evaluate', {
+      const result = await this.send('Runtime.evaluate', {
         expression, awaitPromise: true, returnByValue: true,
       });
-      if (r.exceptionDetails) throw new Error(r.exceptionDetails.text + ' ' + (r.exceptionDetails.exception?.description ?? ''));
-      return r.result.value;
+      if (result.exceptionDetails) {
+        throw new Error(result.exceptionDetails.text + ' ' +
+          (result.exceptionDetails.exception?.description ?? ''));
+      }
+      return result.result.value;
     },
-    close() { ws.close(); },
+    close() { failAll('cdp: closed by caller'); ws.close(); },
   };
 }
 
 export async function waitFor(fn, { timeout = 15000, interval = 400, label = 'condition' } = {}) {
-  const t0 = Date.now();
+  const deadline = Date.now() + timeout;
+  let lastError = null;
   for (;;) {
-    try { const v = await fn(); if (v) return v; } catch { /* retry */ }
-    if (Date.now() - t0 > timeout) throw new Error(`timeout waiting for ${label}`);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    try {
+      // Bounded even if fn itself never settles.
+      const value = await Promise.race([
+        Promise.resolve().then(fn),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('probe timed out')), remaining)),
+      ]);
+      if (value) return value;
+    } catch (e) {
+      lastError = e;
+    }
+    if (Date.now() >= deadline) break;
     await new Promise((r) => setTimeout(r, interval));
   }
+  throw new Error(`timeout waiting for ${label}` + (lastError ? ` (last error: ${lastError.message})` : ''));
 }

@@ -7,9 +7,15 @@ button.onclick = async () => {
   status.textContent = '페이지를 복사하는 중…';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !/^https?:/.test(tab.url ?? '')) {
+  // A tab still loading reports an empty url and carries the real one in
+  // pendingUrl. Judging on url alone refused to capture pages that were merely
+  // slow, which reads as "this page cannot be saved".
+  const address = tab?.url || tab?.pendingUrl || '';
+  if (!tab?.id || !/^(https?|file):/.test(address)) {
     status.className = 'bad';
-    status.textContent = '이 탭은 저장할 수 없습니다.';
+    status.textContent = address
+      ? '이 페이지는 저장할 수 없습니다.'
+      : '페이지가 아직 열리는 중입니다. 잠시 후 다시 눌러주세요.';
     button.disabled = false;
     return;
   }

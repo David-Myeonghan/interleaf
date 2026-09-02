@@ -3,35 +3,34 @@
 // native windows CDP cannot drive, so choosing a target stays hand-driven and is
 // covered by scripts/m4-manual.md.
 import * as cdp from './cdp.mjs';
-import { extensionId } from './ext-id.mjs';
+import { openExtension, captureInto, closeTabs, waitForPage, openPage } from './harness.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const FIXTURE = 'http://127.0.0.1:8777/index.html';
+// Served over file://, not http://. macOS grants local-network access per
+// binary, and it is withheld from Chrome for Testing: the browser cannot reach
+// any localhost server (a data: url loads fine, every http one stays
+// about:blank) while curl on the same machine gets 200. A file:// fixture keeps
+// the harness independent of that, and still exercises resource inlining
+// because its stylesheet, image and webfont are separate files.
+const FIXTURE = 'file://' + fileURLToPath(new URL('../test/fixture-site/index.html', import.meta.url));
 const OUT_DIR = fileURLToPath(new URL('../test/out/', import.meta.url));
-const extId = await extensionId();
+
+// Verifying against bytes that are not on disk proves nothing, and a leftover
+// extension page never answers, so both are settled before anything is measured.
+await closeTabs((url) => url.startsWith(FIXTURE));
+const { extId, popup, fresh: freshness } = await openExtension();
+console.log('freshness:', freshness);
+
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
 
-const waitForPage = (prefix, label) => cdp.waitFor(
-  async () => (await cdp.targets()).find((t) => t.type === 'page' && t.url.startsWith(prefix)),
-  { label, timeout: 20000 },
-);
+const fixturePage = await openPage(FIXTURE, 'fixture');
 
-await cdp.newTab(FIXTURE);
-await waitForPage(FIXTURE, 'fixture');
-await cdp.newTab(`chrome-extension://${extId}/popup.html`);
-const pop = cdp.connect((await waitForPage(`chrome-extension://${extId}/popup.html`, 'popup')).webSocketDebuggerUrl);
-const tabId = await cdp.waitFor(async () => JSON.parse(await pop.eval(
-  `chrome.tabs.query({}).then(ts => JSON.stringify(ts.filter(t => (t.url||'').startsWith('${FIXTURE}')).map(t => t.id)))`))[0],
-  { label: 'fixture tab' });
-const cap = JSON.parse(await pop.eval(
-  `chrome.runtime.sendMessage({ type: 'capture', tabId: ${tabId} }).then(r => JSON.stringify(r))`));
-if (!cap.ok) { console.error('capture failed', cap); process.exit(1); }
+const { page: ed, result: cap } = await captureInto(popup, extId, FIXTURE);
+console.log('captured', Math.round(cap.bytes / 1024) + 'KB');
 
-const ed = cdp.connect((await waitForPage(`chrome-extension://${extId}/editor.html`, 'editor')).webSocketDebuggerUrl);
-await cdp.waitFor(() => ed.eval('!!(window.__interleaf && window.__interleaf.saver)'), { label: 'saver' });
 
 // A fresh capture with nothing remembered has no target and must not invent one.
 const fresh = JSON.parse(await ed.eval('JSON.stringify(window.__interleaf.saver.status())'));
@@ -127,9 +126,9 @@ fs.writeFileSync(saved, await ed.eval('window.__interleaf.buildDocument()'));
 const before = fs.statSync(saved).mtimeMs;
 
 const url = 'file://' + saved;
-await cdp.newTab(url);
-const opened = cdp.connect((await waitForPage(url, 'saved file')).webSocketDebuggerUrl);
-await cdp.waitFor(() => opened.eval('!!(window.__interleaf && window.__interleaf.saver)'), { label: 'file saver' });
+const opened = await openPage(url, 'saved file');
+await cdp.waitFor(() => opened.eval('!!(window.__interleaf && window.__interleaf.saver)'),
+  { label: 'file saver', timeout: 20000 });
 await new Promise((r) => setTimeout(r, 1500));
 
 const onOpen = JSON.parse(await opened.eval('JSON.stringify(window.__interleaf.saver.status())'));
@@ -225,5 +224,5 @@ check(collision.strictTargetName === null,
   `a stranger was adopted as our own file: ${collision.strictTargetName}`);
 
 console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: save states, panel, coalescing, no write on open, no clobbering neighbours');
-pop.close(); ed.close(); opened.close();
+popup.close(); ed.close(); opened.close();
 process.exit(failures.length ? 1 : 0);

@@ -3,34 +3,32 @@
 // text. Includes a phrase that appears twice and a range spanning two elements,
 // which are the cases a position-only or quote-only anchor gets wrong.
 import * as cdp from './cdp.mjs';
-import { extensionId } from './ext-id.mjs';
+import { openExtension, captureInto, closeTabs, waitForPage, openPage } from './harness.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const FIXTURE = 'http://127.0.0.1:8777/index.html';
+// Served over file://, not http://. macOS grants local-network access per
+// binary, and it is withheld from Chrome for Testing: the browser cannot reach
+// any localhost server (a data: url loads fine, every http one stays
+// about:blank) while curl on the same machine gets 200. A file:// fixture keeps
+// the harness independent of that, and still exercises resource inlining
+// because its stylesheet, image and webfont are separate files.
+const FIXTURE = 'file://' + fileURLToPath(new URL('../test/fixture-site/index.html', import.meta.url));
 const OUT_DIR = fileURLToPath(new URL('../test/out/', import.meta.url));
 const OUT = path.join(OUT_DIR, 'roundtrip.html');
-const extId = await extensionId();
 
-const waitForPage = (prefix, label) => cdp.waitFor(
-  async () => (await cdp.targets()).find((t) => t.type === 'page' && t.url.startsWith(prefix)),
-  { label, timeout: 20000 },
-);
+// Verifying against bytes that are not on disk proves nothing, and a leftover
+// extension page never answers, so both are settled before anything is measured.
+await closeTabs((url) => url.startsWith(FIXTURE));
+const { extId, popup, fresh } = await openExtension();
+console.log('freshness:', fresh);
 
-await cdp.newTab(FIXTURE);
-await waitForPage(FIXTURE, 'fixture');
-await cdp.newTab(`chrome-extension://${extId}/popup.html`);
-const pop = cdp.connect((await waitForPage(`chrome-extension://${extId}/popup.html`, 'popup')).webSocketDebuggerUrl);
-const tabId = await cdp.waitFor(async () => JSON.parse(await pop.eval(
-  `chrome.tabs.query({}).then(ts => JSON.stringify(ts.filter(t => (t.url||'').startsWith('${FIXTURE}')).map(t => t.id)))`))[0],
-  { label: 'fixture tab' });
-const cap = JSON.parse(await pop.eval(
-  `chrome.runtime.sendMessage({ type: 'capture', tabId: ${tabId} }).then(r => JSON.stringify(r))`));
-if (!cap.ok) { console.error('capture failed', cap); process.exit(1); }
+const fixturePage = await openPage(FIXTURE, 'fixture');
 
-const ed = cdp.connect((await waitForPage(`chrome-extension://${extId}/editor.html`, 'editor')).webSocketDebuggerUrl);
-await cdp.waitFor(() => ed.eval('!!(window.__interleaf && window.__interleaf.layer)'), { label: 'note layer' });
+const { page: ed, result: cap } = await captureInto(popup, extId, FIXTURE);
+console.log('captured', Math.round(cap.bytes / 1024) + 'KB');
+
 
 // Notes to plant. The last three are the awkward cases.
 const PLANTS = [
@@ -99,10 +97,12 @@ if (/chrome-extension:\/\//.test(html)) leaks.push('an extension URL was left in
 console.log(leaks.length ? 'markup FAIL\n- ' + leaks.join('\n- ') : 'markup: clean');
 
 // Open the written file. No extension code participates from here on.
+// openPage rather than a bare newTab: a target can come up with its address set
+// and nothing rendered, and evaluating against it then times out.
 const fileUrl = 'file://' + OUT;
-await cdp.newTab(fileUrl);
-const opened = cdp.connect((await waitForPage(fileUrl, 'saved file')).webSocketDebuggerUrl);
-await cdp.waitFor(() => opened.eval('!!(window.__interleaf && window.__interleaf.status)'), { label: 'viewer boot' });
+const opened = await openPage(fileUrl, 'saved file');
+await cdp.waitFor(() => opened.eval('!!(window.__interleaf && window.__interleaf.status)'),
+  { label: 'viewer boot', timeout: 20000 });
 await opened.eval('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
 
 const restored = await opened.eval(`(() => {
@@ -141,7 +141,7 @@ const dupTops = r.notes.filter((n) => n.expected?.startsWith('the same sentence'
 if (new Set(dupTops).size !== dupTops.length) failures.push('the repeated phrase resolved to the same spot twice');
 
 console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: notes survive the round trip, extension not involved');
-pop.close(); ed.close(); opened.close();
+popup.close(); ed.close(); opened.close();
 
 // The stored offsets are only half the anchor. Shift the text so every position
 // is wrong and check the quote path finds the notes anyway - that is the case
@@ -155,9 +155,9 @@ if (shifted === html) throw new Error('could not insert the interloper paragraph
 fs.writeFileSync(SHIFTED, shifted);
 
 const shiftedUrl = 'file://' + SHIFTED;
-await cdp.newTab(shiftedUrl);
-const moved = cdp.connect((await waitForPage(shiftedUrl, 'shifted file')).webSocketDebuggerUrl);
-await cdp.waitFor(() => moved.eval('!!(window.__interleaf && window.__interleaf.status)'), { label: 'viewer boot (shifted)' });
+const moved = await openPage(shiftedUrl, 'shifted file');
+await cdp.waitFor(() => moved.eval('!!(window.__interleaf && window.__interleaf.status)'),
+  { label: 'viewer boot (shifted)', timeout: 20000 });
 await moved.eval('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
 
 const afterShift = await moved.eval(`(() => {
@@ -194,3 +194,4 @@ console.log(shiftFailures.length
   ? 'FAIL (shifted)\n- ' + shiftFailures.join('\n- ')
   : 'PASS: stale positions fall back to the quote, repeats still land apart');
 moved.close();
+process.exit(0);

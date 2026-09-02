@@ -1,41 +1,31 @@
 // Drives the note layer: capture the fixture, create notes on adjacent lines via
 // real Ranges, then assert the cards neither overlap nor drift off their anchors.
 import * as cdp from './cdp.mjs';
-import { extensionId } from './ext-id.mjs';
+import { openExtension, captureInto, closeTabs, waitForPage, openPage } from './harness.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const FIXTURE = 'http://127.0.0.1:8777/index.html';
-const extId = await extensionId();
+// Served over file://, not http://. macOS grants local-network access per
+// binary, and it is withheld from Chrome for Testing: the browser cannot reach
+// any localhost server (a data: url loads fine, every http one stays
+// about:blank) while curl on the same machine gets 200. A file:// fixture keeps
+// the harness independent of that, and still exercises resource inlining
+// because its stylesheet, image and webfont are separate files.
+const FIXTURE = 'file://' + fileURLToPath(new URL('../test/fixture-site/index.html', import.meta.url));
+const OUT_DIR = fileURLToPath(new URL('../test/out/', import.meta.url));
 
-/** Waits for a page target whose url starts with `prefix`. Fixed sleeps raced
- *  the fixture's asset loads and left tabs.query with no url to match. */
-async function waitForPage(prefix, label) {
-  return cdp.waitFor(
-    async () => (await cdp.targets()).find((t) => t.type === 'page' && t.url.startsWith(prefix)),
-    { label: label ?? prefix, timeout: 20000 },
-  );
-}
+// Verifying against bytes that are not on disk proves nothing, and a leftover
+// extension page never answers, so both are settled before anything is measured.
+await closeTabs((url) => url.startsWith(FIXTURE));
+const { extId, popup, fresh } = await openExtension();
+console.log('freshness:', fresh);
 
-await cdp.newTab(FIXTURE);
-await waitForPage(FIXTURE, 'fixture page');
+const fixturePage = await openPage(FIXTURE, 'fixture');
 
-await cdp.newTab(`chrome-extension://${extId}/popup.html`);
-const popTarget = await waitForPage(`chrome-extension://${extId}/popup.html`, 'popup page');
-const pop = cdp.connect(popTarget.webSocketDebuggerUrl);
-
-const tabId = await cdp.waitFor(async () => {
-  const ids = JSON.parse(await pop.eval(
-    `chrome.tabs.query({}).then(ts => JSON.stringify(ts.filter(t => (t.url||'').startsWith('${FIXTURE}')).map(t => t.id)))`));
-  return ids[0];
-}, { label: 'fixture tab id' });
-
-const cap = JSON.parse(await pop.eval(
-  `chrome.runtime.sendMessage({ type: 'capture', tabId: ${tabId} }).then(r => JSON.stringify(r))`));
-if (!cap.ok) { console.error('capture failed', cap); process.exit(1); }
+const { page: ed, result: cap } = await captureInto(popup, extId, FIXTURE);
 console.log('captured', Math.round(cap.bytes / 1024) + 'KB');
 
-const edTarget = await waitForPage(`chrome-extension://${extId}/editor.html`, 'editor page');
-const ed = cdp.connect(edTarget.webSocketDebuggerUrl);
-await cdp.waitFor(() => ed.eval('!!(window.__interleaf && window.__interleaf.layer)'), { label: 'note layer' });
 
 // Pin the viewport so the gutter decision is measured against a known width.
 await ed.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -193,5 +183,6 @@ if (wide.cardsOverText) failures.push('wide: cards sit over the text');
 if (!narrow.overContent) failures.push('narrow viewport should flag the overlay');
 
 console.log(failures.length ? '\nFAIL\n- ' + failures.join('\n- ') : '\nPASS: capture never reflowed; overlay flagged only when it happens');
-
-pop.close(); ed.close();
+popup.close(); ed.close(); fixturePage.close();
+// Open sockets keep the event loop alive, so the run has to end itself.
+process.exit(failures.length ? 1 : 0);
