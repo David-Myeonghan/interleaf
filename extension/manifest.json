@@ -22,7 +22,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "sf-bundle.js"
+        "sf-bundle.js",
+        "notes.css"
       ],
       "matches": [
         "<all_urls>"
