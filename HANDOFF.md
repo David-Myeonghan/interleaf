@@ -99,8 +99,14 @@ names it, rather than failing into a console error.
 
 ## If you are a new session
 
-The project memory file
-`~/.claude/projects/-Users-david-Imagoworks-dentbird-solutions/memory/project_interleaf_side_project.md`
-carries the same facts in shorter form, and the vault plan carries the full
-history of what was measured and what was wrong. Prefer measuring over reading
-either of them: nearly every design decision here changed after being measured.
+**The project memory file does not travel.** It lives under `~/.claude/` on the
+machine that wrote it, so on another computer it is simply absent. Two copies do
+survive: this file, which is in git, and the Korean handoff in the Obsidian
+vault, which the vault backs up hourly and which also carries the memory
+content as an appendix you can paste into a new machine.
+
+So on a fresh machine, point the session at this file. Everything it needs is
+here or in `docs/`.
+
+Prefer measuring over reading either of them: nearly every design decision here
+changed after being measured.
