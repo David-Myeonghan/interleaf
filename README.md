@@ -16,6 +16,32 @@ line. Notes are stored in a JSON block at the bottom of the file and drawn back 
 open, so the file is the whole document: hand it to another machine and the notes
 travel with it.
 
+## Working on it elsewhere
+
+Start with [HANDOFF.md](HANDOFF.md): where it stands, and the things that cost
+hours to learn.
+
+    git clone https://github.com/David-Myeonghan/interleaf.git
+    cd interleaf
+    npm run setup
+
+`setup` installs, builds, and fetches Chrome for Testing, which the harness
+needs because branded Chrome dropped `--load-extension` in 137. Then
+`npm run verify` runs the three suites, launching their own browser.
+
+To use it rather than work on it: `chrome://extensions`, developer mode on,
+**Load unpacked**, pick `extension/`, then open its details and turn on
+**Allow access to file URLs** so saved files can be reopened and kept editable.
+
+Two things are per-machine and cannot travel: the folder you save into, which
+the browser only grants through its own picker, and the write permission on it.
+Choosing a folder once per browser profile is the whole cost — after that each
+saved file finds its own by name and stamped id.
+
+A saved file itself travels freely. It carries the page, the notes, and the
+viewer that draws them, so another computer needs nothing installed to read it;
+only writing back to it needs the extension and one folder choice.
+
 ## Design
 
 **The saved file does almost everything.** Viewing, highlighting, editing and saving

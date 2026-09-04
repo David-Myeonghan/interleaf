@@ -74,3 +74,24 @@ The likeliest question is the broad host permission. The answer is in
 `docs/store-listing.md` and it is a real one: embedding a page's own resources
 requires cross-origin reads that a page-level script cannot perform, and the
 set of sites a user might save cannot be enumerated ahead of time.
+
+## After it is published
+
+Changes are not one-way. Bump the version in `extension/manifest.json`,
+`npm run package`, upload. Updates are reviewed again but far faster than a
+first submission — an extension with narrow permissions and no remote code can
+clear in under an hour.
+
+Versions only go up: 1.0.0 to 1.0.1, never back. The escape hatch is the
+store's rollback, which republishes a previous build under a *new* version
+number and goes live in about a minute with no review. That only works if the
+build still exists, so keep the zips in `dist/`.
+
+Listing text and screenshots can be changed without a code review.
+
+The expensive change is a new permission: review gets deeper and every user has
+to consent again, which disables the extension until they do. That is the
+reason to keep the current three and add nothing speculatively.
+
+One account limit worth knowing: as of August 2026 a publisher account gets two
+extension slots by default.
