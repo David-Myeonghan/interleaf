@@ -10,7 +10,8 @@
     "fixture": "node scripts/fixture-server.mjs",
     "verify": "node scripts/m2-verify.mjs && node scripts/m3-verify.mjs && node scripts/m4-verify.mjs",
     "package": "bash scripts/package.sh",
-    "shots": "node scripts/store-shots.mjs"
+    "shots": "node scripts/store-shots.mjs",
+    "setup": "bash scripts/setup.sh"
   },
   "keywords": [],
   "author": "",

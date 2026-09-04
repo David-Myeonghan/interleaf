@@ -8,7 +8,15 @@
 # its own start. Verifications ran against stale code that way.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CFT="$ROOT/.browsers/chrome/mac_arm-152.0.7977.75/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+# Found rather than hardcoded: the download's directory carries the version and
+# the architecture, so a pinned path only works on the machine that fetched it.
+CFT="$(find "$ROOT/.browsers" -type f \
+  \( -name 'Google Chrome for Testing' -o -name 'chrome' -o -name 'chrome.exe' \) \
+  -perm -u+x 2>/dev/null | sort | tail -1)"
+if [ -z "${CFT:-}" ]; then
+  echo "no browser in $ROOT/.browsers - run: npm run setup" >&2
+  exit 1
+fi
 PROFILE="$ROOT/.dev-profile"
 PORT=9444
 
